@@ -59,6 +59,8 @@ The current action buttons run in hybrid mode:
 - Without a connected wallet and contract env vars, they update the local demo state.
 - With a connected wallet, package ID, and `InvoiceCounter` ID, create/list/buy/pay
   can submit Sui transactions through dApp Kit.
+- After publish, paste an `InvoiceReceivable` object ID into the dashboard import
+  panel to fetch real object JSON from Sui and add it to the console.
 
 ## Move Package
 

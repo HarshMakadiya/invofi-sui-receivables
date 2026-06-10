@@ -1,6 +1,7 @@
 import {
   useDAppKit,
   useCurrentAccount,
+  useCurrentClient,
   useCurrentNetwork,
   useCurrentWallet,
   useWalletConnection,
@@ -35,6 +36,7 @@ import { buildEvidencePackage } from "./lib/evidencePackage";
 import { formatCompactSui, formatSui, shortAddress } from "./lib/format";
 import { healthScore } from "./lib/healthScore";
 import { getReceivableContractReadiness } from "./lib/receivableContract";
+import { fetchInvoiceReceivableObject } from "./lib/receivableObjects";
 import {
   buildBuyReceivableTx,
   buildCreateReceivableTx,
@@ -46,6 +48,7 @@ import type { DemoWallet, FinancingStatus, Invoice, InvoiceStatus, Page, WalletR
 
 function App() {
   const account = useCurrentAccount();
+  const suiClient = useCurrentClient();
   const dAppKit = useDAppKit();
   const [page, setPage] = useState<Page>("dashboard");
   const [walletRole, setWalletRole] = useState<WalletRole>("issuer");
@@ -54,6 +57,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
   const wallet = wallets[walletRole];
@@ -262,6 +266,24 @@ function App() {
     notify(`${invoice.id} created`);
   }
 
+  async function importInvoiceObject(objectId: string) {
+    setIsImporting(true);
+    try {
+      const importedInvoice = await fetchInvoiceReceivableObject(suiClient, objectId.trim());
+      setInvoices((current) => {
+        const withoutDuplicate = current.filter((invoice) => invoice.objectId !== importedInvoice.objectId);
+        return [importedInvoice, ...withoutDuplicate];
+      });
+      setSelectedInvoiceId(importedInvoice.id);
+      notify(`${importedInvoice.id} imported from Sui`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to import object";
+      notify(message);
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-paper text-ink">
       <div className="fixed inset-0 -z-10 grid-noise opacity-60" />
@@ -373,8 +395,10 @@ function App() {
               onList={listInvoice}
               onPay={payInvoice}
               onQuery={setQuery}
+              onImportObject={importInvoiceObject}
               onSelect={setSelectedInvoiceId}
               onShowMarketplace={() => setPage("marketplace")}
+              isImporting={isImporting}
             />
           )}
           {page === "create" && <CreateReceivable isCreating={isCreating} onCreate={createInvoice} />}
@@ -396,6 +420,7 @@ function App() {
 
 function Dashboard({
   invoices,
+  isImporting,
   query,
   selectedInvoice,
   stats,
@@ -404,10 +429,12 @@ function Dashboard({
   onList,
   onPay,
   onQuery,
+  onImportObject,
   onSelect,
   onShowMarketplace,
 }: {
   invoices: Invoice[];
+  isImporting: boolean;
   query: string;
   selectedInvoice: Invoice;
   stats: { pending: number; listed: number; financed: number; paid: number; volume: number };
@@ -416,6 +443,7 @@ function Dashboard({
   onList: (invoice: Invoice) => void;
   onPay: (invoice: Invoice) => void;
   onQuery: (value: string) => void;
+  onImportObject: (objectId: string) => void;
   onSelect: (id: string) => void;
   onShowMarketplace: () => void;
 }) {
@@ -456,6 +484,8 @@ function Dashboard({
             </div>
           </div>
         </div>
+
+        <ImportObjectPanel isImporting={isImporting} onImportObject={onImportObject} />
 
         <div className="rounded-[2rem] border border-line bg-white p-4 shadow-lifted md:p-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -516,6 +546,55 @@ function PaymentRoute({ invoice }: { invoice: Invoice }) {
         </p>
       </div>
     </div>
+  );
+}
+
+function ImportObjectPanel({
+  isImporting,
+  onImportObject,
+}: {
+  isImporting: boolean;
+  onImportObject: (objectId: string) => void;
+}) {
+  const [objectId, setObjectId] = useState("");
+
+  function submitImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!objectId.trim()) {
+      return;
+    }
+    onImportObject(objectId);
+  }
+
+  return (
+    <form
+      className="rounded-[2rem] border border-line bg-white p-4 shadow-lifted md:p-5"
+      onSubmit={submitImport}
+    >
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <div className="flex items-center gap-2">
+            <DatabaseZap className="text-moss" size={18} />
+            <h2 className="text-xl font-black tracking-[-0.03em]">Import Sui receivable</h2>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-ink/55">
+            Paste an `InvoiceReceivable` object ID after publishing the Move contract. This reads real Sui object JSON and adds it to the dashboard.
+          </p>
+          <input
+            className="mt-4 w-full rounded-2xl border border-line bg-paper px-4 py-3 text-sm outline-none transition placeholder:text-ink/35 focus:border-ink"
+            onChange={(event) => setObjectId(event.target.value)}
+            placeholder="0x..."
+            value={objectId}
+          />
+        </div>
+        <button
+          className="rounded-2xl bg-ink px-5 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 disabled:bg-ink/35"
+          disabled={isImporting || !objectId.trim()}
+        >
+          {isImporting ? "Importing..." : "Import object"}
+        </button>
+      </div>
+    </form>
   );
 }
 
