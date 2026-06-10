@@ -117,12 +117,12 @@ function App() {
   async function listInvoice(invoice: Invoice) {
     const digest = hasRealObjectId(invoice)
       ? await trySubmitTransaction("List transaction", () =>
-          buildListForFinancingTx({
-            invoiceObjectId: invoice.objectId,
-            financingPriceSui: Math.floor(invoice.amount * 0.9),
-            discountBps: 1000,
-          }),
-        )
+        buildListForFinancingTx({
+          invoiceObjectId: invoice.objectId,
+          financingPriceSui: Math.floor(invoice.amount * 0.9),
+          discountBps: 1000,
+        }),
+      )
       : null;
 
     updateInvoice(invoice.id, (item) => ({
@@ -138,11 +138,11 @@ function App() {
   async function buyInvoice(invoice: Invoice) {
     const digest = hasRealObjectId(invoice)
       ? await trySubmitTransaction("Buy transaction", () =>
-          buildBuyReceivableTx({
-            invoiceObjectId: invoice.objectId,
-            financingPriceSui: invoice.financingPrice,
-          }),
-        )
+        buildBuyReceivableTx({
+          invoiceObjectId: invoice.objectId,
+          financingPriceSui: invoice.financingPrice,
+        }),
+      )
       : null;
 
     updateInvoice(invoice.id, (item) => ({
@@ -159,11 +159,11 @@ function App() {
   async function payInvoice(invoice: Invoice) {
     const digest = hasRealObjectId(invoice)
       ? await trySubmitTransaction("Pay transaction", () =>
-          buildPayInvoiceTx({
-            invoiceObjectId: invoice.objectId,
-            amountSui: invoice.amount,
-          }),
-        )
+        buildPayInvoiceTx({
+          invoiceObjectId: invoice.objectId,
+          amountSui: invoice.amount,
+        }),
+      )
       : null;
 
     updateInvoice(invoice.id, (item) => ({
@@ -298,24 +298,23 @@ function App() {
                 IN
               </div>
               <div>
-                <p className="text-lg font-bold tracking-tight text-ink font-serif">InvoNFT</p>
+                <p className="text-lg font-bold tracking-tight text-ink font-poppins">InvoNFT</p>
                 <p className="text-[10px] text-inkmuted font-mono uppercase tracking-wider">Receivables console</p>
               </div>
             </div>
-            
+
             <div className="mt-5 rounded-xl bg-paperalt/50 border border-line p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-inkmuted font-mono">Active role</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-inkmuted font-poppins font-semibold">Active role</p>
               <div className="mt-2 grid gap-1">
                 {Object.entries(wallets).map(([key, item]) => {
                   const isActive = walletRole === key;
                   return (
                     <button
                       key={key}
-                      className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-bold transition-all duration-150 ${
-                        isActive
-                          ? "bg-moss text-lead shadow-flat font-bold"
-                          : "text-inksecondary bg-transparent hover:bg-paperalt/50 hover:text-ink"
-                      }`}
+                      className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-poppins font-semibold transition-all duration-150 ${isActive
+                        ? "bg-moss text-lead shadow-flat font-bold"
+                        : "text-inksecondary bg-transparent hover:bg-paperalt/50 hover:text-ink"
+                        }`}
                       onClick={() => setWalletRole(key as WalletRole)}
                     >
                       <span>{item.label}</span>
@@ -362,26 +361,25 @@ function App() {
               <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-moss/80 font-mono">
                 <Network size={12} /> Sui testnet workspace
               </p>
-              <h1 className="mt-1.5 text-balance text-2xl font-bold tracking-tight text-ink font-serif">
+              <h1 className="mt-1.5 text-balance text-2xl font-bold tracking-tight text-ink font-poppins">
                 Programmable receivables.
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <SuiWalletPanel />
-              
+
               <div className="rounded-2xl border border-line bg-paperalt/30 px-3.5 py-1.5 flex flex-col justify-center min-h-[52px]">
-                <span className="block text-[9px] font-bold text-inkmuted uppercase tracking-wider font-mono">Active Role</span>
+                <span className="block text-[9px] font-bold text-inkmuted uppercase tracking-wider font-poppins font-semibold">Active Role</span>
                 <div className="mt-1 flex gap-1 bg-paperalt/50 rounded-lg p-0.5 border border-line">
                   {Object.entries(wallets).map(([key, item]) => {
                     const isActive = walletRole === key;
                     return (
                       <button
                         key={key}
-                        className={`rounded-md px-2.5 py-0.5 text-[10px] font-bold font-mono transition-all duration-150 ${
-                          isActive
-                            ? "bg-moss text-lead shadow-flat font-bold"
-                            : "text-inksecondary hover:text-ink hover:bg-paperalt/40"
-                        }`}
+                        className={`rounded-md px-2.5 py-0.5 text-[10px] font-poppins font-semibold transition-all duration-150 ${isActive
+                          ? "bg-moss text-lead shadow-flat font-bold"
+                          : "text-inksecondary hover:text-ink hover:bg-paperalt/40"
+                          }`}
                         onClick={() => setWalletRole(key as WalletRole)}
                       >
                         {item.label.split(" ")[0]}
@@ -392,7 +390,7 @@ function App() {
               </div>
 
               <button
-                className="rounded-2xl bg-moss px-5 py-3 text-xs font-bold text-lead shadow-flat hover:bg-mossdeep transition-all duration-200 hover:-translate-y-0.5"
+                className="rounded-2xl bg-moss px-5 py-3 text-xs font-poppins font-bold text-lead shadow-flat hover:bg-mossdeep transition-all duration-200 hover:-translate-y-0.5"
                 onClick={() => setPage("create")}
               >
                 New receivable
@@ -486,7 +484,7 @@ function Dashboard({
                   <p className="inline-flex rounded-full border border-moss/25 bg-mosssoft px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-moss font-mono">
                     Live payment-right state
                   </p>
-                  <h2 className="mt-5 max-w-xl text-balance text-2xl md:text-3xl font-bold tracking-tight text-ink font-serif leading-tight">
+                  <h2 className="mt-5 max-w-xl text-balance text-2xl md:text-3xl font-bold tracking-tight text-ink font-poppins leading-tight">
                     Smart payment routing to verified owners.
                   </h2>
                   <p className="mt-4 max-w-lg text-xs leading-5 text-inksecondary font-sans">
@@ -494,7 +492,7 @@ function Dashboard({
                   </p>
                 </div>
                 <button
-                  className="mt-6 self-start inline-flex items-center gap-2 rounded-xl bg-moss px-5 py-3.5 text-xs font-bold text-lead transition-all duration-150 hover:-translate-y-0.5 shadow-flat hover:bg-mossdeep"
+                  className="mt-6 self-start inline-flex items-center gap-2 rounded-xl bg-moss px-5 py-3.5 text-xs font-poppins font-bold text-lead transition-all duration-150 hover:-translate-y-0.5 shadow-flat hover:bg-mossdeep"
                   onClick={onShowMarketplace}
                 >
                   Review financeable invoices <ArrowRight size={14} />
@@ -510,7 +508,7 @@ function Dashboard({
         <div className="rounded-[1.25rem] border border-line bg-lead p-4 shadow-flat md:p-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-lg font-bold tracking-tight text-ink font-serif">Receivable pipeline</h2>
+              <h2 className="text-lg font-bold tracking-tight text-ink font-poppins">Receivable pipeline</h2>
               <p className="text-xs text-inksecondary font-sans">Search, inspect, and trigger live updates.</p>
             </div>
             <label className="flex items-center gap-2 rounded-xl border border-line bg-paper px-3 py-1.5">
@@ -595,7 +593,7 @@ function ImportObjectPanel({
         <div>
           <div className="flex items-center gap-2">
             <DatabaseZap className="text-moss" size={18} />
-            <h2 className="text-lg font-bold tracking-tight text-ink font-serif">Import Sui receivable</h2>
+            <h2 className="text-lg font-bold tracking-tight text-ink font-poppins">Import Sui receivable</h2>
           </div>
           <p className="mt-1.5 text-xs leading-5 text-inksecondary font-sans">
             Paste an `InvoiceReceivable` object ID after publishing the contract. Reads real Sui state from Testnet.
@@ -659,8 +657,8 @@ function InvoiceInspector({
       <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-mono">Selected Receivable</p>
-            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-serif">{invoice.id}</h2>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-poppins font-semibold">Selected Receivable</p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-poppins">{invoice.id}</h2>
             <p className="mt-1 text-xs text-inksecondary">{invoice.clientName}</p>
           </div>
           <StatusPill status={invoice.status} />
@@ -670,10 +668,10 @@ function InvoiceInspector({
         <div className="mt-5 rounded-xl bg-paperalt/40 border border-line p-4">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-inkmuted font-mono">Audit Score</p>
-              <p className="mt-1 text-3xl font-bold tracking-tight text-ink font-mono">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-inkmuted font-poppins font-semibold">Audit Score</p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-ink font-numbers">
                 {health.score}
-                <span className="text-xs text-inkmuted">/100</span>
+                <span className="text-xs font-mono text-inkmuted">/100</span>
               </p>
             </div>
             <Gauge className="text-moss" size={32} />
@@ -706,7 +704,7 @@ function InvoiceInspector({
             </div>
             <div className="flex justify-between border-b border-linesoft pb-1">
               <span className="text-inkmuted font-mono">Amount</span>
-              <span className="text-moss font-bold font-mono">{formatSui(invoice.amount)}</span>
+              <span className="text-moss font-bold text-xs font-numbers">{formatSui(invoice.amount)}</span>
             </div>
             <div className="flex justify-between border-b border-linesoft pb-1">
               <span className="text-inkmuted font-mono">Due Date</span>
@@ -766,7 +764,7 @@ function InvoiceInspector({
       </div>
 
       <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
-        <h3 className="text-sm font-bold text-ink font-serif">Verification checks</h3>
+        <h3 className="text-sm font-bold text-ink font-poppins">Verification checks</h3>
         <div className="mt-4 grid gap-2">
           {health.checks.map((check) => (
             <div key={check.label} className="flex items-center justify-between gap-3 rounded-xl bg-paperalt/30 border border-line px-3 py-2">
@@ -778,7 +776,7 @@ function InvoiceInspector({
       </div>
 
       <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
-        <h3 className="text-sm font-bold text-ink font-serif">Object activity log</h3>
+        <h3 className="text-sm font-bold text-ink font-poppins">Object activity log</h3>
         <div className="mt-4 grid gap-2">
           {invoice.events.map((event, index) => (
             <div key={`${event}-${index}`} className="flex gap-3 items-start">
@@ -814,9 +812,8 @@ function InvoiceRow({
   const health = healthScore(invoice);
   return (
     <article
-      className={`grid gap-4 rounded-xl border p-4 transition-all duration-150 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${
-        selected ? "border-moss bg-mosssoft/30 text-ink shadow-flat" : "border-line bg-lead hover:border-moss/40 hover:bg-lead"
-      }`}
+      className={`grid gap-4 rounded-xl border p-4 transition-all duration-150 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${selected ? "border-moss bg-mosssoft/30 text-ink shadow-flat" : "border-line bg-lead hover:border-moss/40 hover:bg-lead"
+        }`}
     >
       <button className="text-left" onClick={() => onSelect(invoice.id)}>
         <div className="flex flex-wrap items-center gap-2">
@@ -911,8 +908,8 @@ function CreateReceivable({
       <form className="rounded-[1.25rem] border border-line bg-[#FFFDF7] p-5 shadow-flat md:p-7" onSubmit={onCreate}>
         <div className="mb-7 flex items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-mono">Mint workflow</p>
-            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-serif">Create receivable object</h2>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-poppins font-semibold">Mint workflow</p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-poppins">Create receivable object</h2>
           </div>
           <FileCheck2 className="text-moss" size={32} />
         </div>
@@ -979,8 +976,8 @@ function Marketplace({
     <section className="rounded-[1.25rem] border border-line bg-[#FFFDF7] p-5 shadow-flat md:p-7">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-mono">Financeable supply</p>
-          <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-serif">Marketplace</h2>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-inkmuted font-poppins font-semibold">Financeable supply</p>
+          <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-poppins">Marketplace</h2>
           <p className="mt-1.5 max-w-2xl text-xs leading-5 text-inksecondary">
             Listed invoices show the buyer discount, health score, and future payment recipient behavior before purchase.
           </p>
@@ -1038,7 +1035,7 @@ function Portfolio({ invoices, wallet }: { invoices: Invoice[]; wallet: DemoWall
         <Metric accent="sun" icon={<Clock3 />} label="Current role" value={wallet.label} />
       </div>
       <div className="rounded-[1.25rem] border border-line bg-[#FFFDF7] p-5 shadow-flat md:p-7">
-        <h2 className="text-lg font-bold tracking-tight text-ink font-serif">Buyer positions</h2>
+        <h2 className="text-lg font-bold tracking-tight text-ink font-poppins">Buyer positions</h2>
         <div className="mt-5 grid gap-2">
           {owned.length ? (
             owned.map((invoice) => (
@@ -1069,9 +1066,8 @@ function Portfolio({ invoices, wallet }: { invoices: Invoice[]; wallet: DemoWall
 function NavItem({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
-      className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition-all duration-200 ${
-        active ? "bg-mosssoft text-moss shadow-flat font-black" : "text-inksecondary hover:bg-paperalt/50 hover:text-ink"
-      }`}
+      className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-poppins font-semibold transition-all duration-200 ${active ? "bg-mosssoft text-moss shadow-flat font-black" : "text-inksecondary hover:bg-paperalt/50 hover:text-ink"
+        }`}
       onClick={onClick}
     >
       {icon}
@@ -1089,7 +1085,7 @@ function SuiWalletPanel() {
   return (
     <div className="rounded-2xl border border-line bg-paperalt/30 px-4 py-2 flex flex-col justify-center min-h-[52px]">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[10px] font-bold text-inkmuted uppercase tracking-wider font-mono">Sui Network</span>
+        <span className="text-[10px] font-bold text-inkmuted uppercase tracking-wider font-poppins font-semibold">Sui Network</span>
         <span className={`h-1.5 w-1.5 rounded-full ${connection.isConnected ? "bg-moss animate-pulse" : "bg-inkmuted/30"}`} />
       </div>
       <div className="flex flex-col gap-2 mt-1 sm:flex-row sm:items-center">
@@ -1120,9 +1116,8 @@ function MobileNav({ page, onChange }: { page: Page; onChange: (page: Page) => v
       {items.map((item) => (
         <button
           key={item.page}
-          className={`flex min-w-max items-center gap-2 rounded-2xl px-3 py-2 text-sm font-bold transition-all duration-200 ${
-            page === item.page ? "bg-mosssoft text-moss shadow-flat font-black" : "text-inksecondary hover:bg-paperalt/50 hover:text-ink"
-          }`}
+          className={`flex min-w-max items-center gap-2 rounded-2xl px-3 py-2 text-sm font-poppins font-semibold transition-all duration-200 ${page === item.page ? "bg-mosssoft text-moss shadow-flat font-black" : "text-inksecondary hover:bg-paperalt/50 hover:text-ink"
+            }`}
           onClick={() => onChange(item.page)}
         >
           {item.icon}
@@ -1143,8 +1138,8 @@ function Metric({ accent, icon, label, value }: { accent: "mint" | "aqua" | "sun
   return (
     <div className="rounded-[1.6rem] border border-line bg-lead p-4 shadow-flat hover:border-moss/40 transition-all duration-300">
       <div className={`grid h-11 w-11 place-items-center rounded-2xl border ${style}`}>{icon}</div>
-      <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.18em] text-inkmuted font-mono">{label}</p>
-      <p className="mt-1 truncate text-2xl font-bold tracking-tight text-ink font-mono">{value}</p>
+      <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.18em] text-inkmuted font-poppins font-semibold">{label}</p>
+      <p className="mt-1 truncate text-3xl font-bold tracking-tight text-ink font-numbers">{value}</p>
     </div>
   );
 }
@@ -1152,7 +1147,7 @@ function Metric({ accent, icon, label, value }: { accent: "mint" | "aqua" | "sun
 function Field({ label, name, defaultValue, type = "text" }: { label: string; name: string; defaultValue: string; type?: string }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-bold text-ink font-sans uppercase tracking-wider">{label}</span>
+      <span className="text-xs font-bold text-ink font-poppins font-semibold uppercase tracking-wider">{label}</span>
       <input
         className="rounded-xl border border-line bg-lead text-ink px-4 py-3 text-sm outline-none transition focus:border-moss focus:ring-1 focus:ring-moss/30 placeholder:text-inkmuted/80"
         name={name}
@@ -1168,7 +1163,7 @@ function InfoPanel({ icon, title, body }: { icon: React.ReactNode; title: string
   return (
     <div className="rounded-[2rem] border border-line bg-lead p-5 shadow-flat">
       <div className="grid h-12 w-12 place-items-center rounded-2xl border border-moss/25 bg-mosssoft text-moss">{icon}</div>
-      <h3 className="mt-5 text-base font-bold text-ink font-serif">{title}</h3>
+      <h3 className="mt-5 text-base font-bold text-ink font-poppins">{title}</h3>
       <p className="mt-2 text-xs leading-5 text-inksecondary">{body}</p>
     </div>
   );
@@ -1177,36 +1172,35 @@ function InfoPanel({ icon, title, body }: { icon: React.ReactNode; title: string
 function SmallStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-paperalt/40 border border-line p-3">
-      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-inkmuted font-mono">{label}</p>
-      <p className="mt-1 truncate font-bold text-ink text-xs font-mono">{value}</p>
+      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-inkmuted font-poppins font-semibold">{label}</p>
+      <p className="mt-1 truncate font-bold text-ink text-sm font-numbers">{value}</p>
     </div>
   );
 }
 
 function StatusPill({ status, compact = false }: { status: InvoiceStatus; compact?: boolean }) {
   const style = {
-    PENDING: "bg-sun/10 text-sun border-sun/25 font-mono",
-    PAID: "bg-mosssoft text-moss border-moss/25 font-mono",
-    OVERDUE: "bg-coral/10 text-coral border-coral/20 font-mono",
+    PENDING: "bg-sun/10 text-sun border-sun/25 font-numbers font-semibold",
+    PAID: "bg-mosssoft text-moss border-moss/25 font-numbers font-semibold",
+    OVERDUE: "bg-coral/10 text-coral border-coral/20 font-numbers font-semibold",
   }[status];
-  return <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${style}`}>{compact ? status.slice(0, 4) : status}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-[10px] border ${style}`}>{compact ? status.slice(0, 4) : status}</span>;
 }
 
 function FinancePill({ status }: { status: FinancingStatus }) {
   const style = {
-    NOT_LISTED: "bg-paperalt/60 text-inkmuted border-line font-mono",
-    LISTED: "bg-mosssoft/40 text-aqua border-aqua/25 font-mono",
-    FINANCED: "bg-mosssoft text-moss border-moss/25 font-mono",
-    CANCELLED: "bg-coral/10 text-coral border-coral/20 font-mono",
+    NOT_LISTED: "bg-paperalt/60 text-inkmuted border-line font-poppins font-semibold",
+    LISTED: "bg-mosssoft/40 text-aqua border-aqua/25 font-poppins font-semibold",
+    FINANCED: "bg-mosssoft text-moss border-moss/25 font-poppins font-semibold",
+    CANCELLED: "bg-coral/10 text-coral border-coral/20 font-poppins font-semibold",
   }[status];
-  return <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${style}`}>{status.replace("_", " ")}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-[10px] border ${style}`}>{status.replace("_", " ")}</span>;
 }
 
 function MiniChip({ children, selected = false }: { children: React.ReactNode; selected?: boolean }) {
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border transition ${
-      selected ? "bg-mosssoft text-moss border-moss/20 font-mono" : "bg-paperalt/50 text-inksecondary border-line font-mono"
-    }`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border transition ${selected ? "bg-mosssoft text-moss border-moss/20 font-numbers" : "bg-paperalt/50 text-inksecondary border-line font-numbers"
+      }`}>
       {children}
     </span>
   );
@@ -1215,8 +1209,8 @@ function MiniChip({ children, selected = false }: { children: React.ReactNode; s
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-line pb-3 last:border-b-0 last:pb-0">
-      <span className="text-xs text-inkmuted">{label}</span>
-      <span className="max-w-[190px] truncate text-right text-xs font-bold text-ink font-mono">{value}</span>
+      <span className="text-xs text-inkmuted font-poppins">{label}</span>
+      <span className="max-w-[190px] truncate text-right text-xs font-bold text-ink font-numbers">{value}</span>
     </div>
   );
 }

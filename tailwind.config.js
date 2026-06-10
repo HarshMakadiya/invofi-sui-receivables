@@ -30,9 +30,12 @@ export default {
             },
             fontFamily: {
                 sans: [
-                    "Plus Jakarta Sans",
-                    "Inter",
+                    "Geist",
                     "ui-sans-serif",
+                    "sans-serif",
+                ],
+                poppins: [
+                    "Poppins",
                     "sans-serif",
                 ],
                 serif: [
@@ -44,6 +47,11 @@ export default {
                     "Space Grotesk",
                     "ui-monospace",
                     "monospace",
+                ],
+                numbers: [
+                    "Newsreader",
+                    "Georgia",
+                    "serif",
                 ],
             },
         },

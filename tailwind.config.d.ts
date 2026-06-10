@@ -29,9 +29,11 @@ declare const _default: {
                 "glow-sun": string;
             };
             fontFamily: {
-                sans: [string, string, string, string];
+                sans: [string, string, string];
+                poppins: [string, string];
                 serif: [string, string, string];
                 mono: [string, string, string];
+                numbers: [string, string, string];
             };
         };
     };

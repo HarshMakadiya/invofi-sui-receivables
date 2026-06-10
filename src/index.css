@@ -84,6 +84,7 @@ button:disabled {
   position: relative;
   transition: border-color 0.22s, transform 0.22s;
 }
+
 .verdacert-card:hover {
   border-color: #1F4634;
 }
@@ -97,9 +98,12 @@ button:disabled {
 
 /* Soft trust indicators */
 @keyframes status-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 0.6;
   }
+
   50% {
     opacity: 1;
   }
@@ -110,7 +114,30 @@ button:disabled {
 }
 
 /* Form input custom styling */
-input:focus, textarea:focus {
+input:focus,
+textarea:focus {
   border-color: #1F4634 !important;
   box-shadow: 0 0 0 3px rgba(31, 70, 52, 0.08) !important;
+}
+
+/* Mysten dApp Kit Connect Button & Modal Theme Overrides */
+mysten-dapp-kit-connect-button {
+  --primary: #1F4634;
+  --primary-foreground: #FFFDF7;
+  --radius: 1rem;
+  --font-sans: 'Poppins', sans-serif;
+}
+
+mysten-dapp-kit-connect-button:hover {
+  transform: translateY(-1px);
+}
+
+mysten-dapp-kit-connect-modal {
+  --background: #FFFDF7;
+  --foreground: #1A1A17;
+  --primary: #1F4634;
+  --primary-foreground: #FFFDF7;
+  --border: #D9D3C4;
+  --radius: 1.25rem;
+  --font-sans: 'Poppins', sans-serif;
 }
