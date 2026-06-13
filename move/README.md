@@ -5,6 +5,7 @@ This package contains the Sui Move contract for programmable receivables.
 ## What It Implements
 
 - Shared `InvoiceCounter` object created at publish time.
+- Shared `PlatformConfig` object created at publish time.
 - Shared `InvoiceReceivable` objects.
 - `create_invoice_receivable`
 - `list_for_financing`
@@ -13,6 +14,7 @@ This package contains the Sui Move contract for programmable receivables.
 - `cancel_listing`
 - `attach_evidence`
 - `mark_overdue`
+- `update_platform_fee`
 
 The critical invariant is:
 
@@ -51,5 +53,6 @@ After publish, copy:
 
 - Published package ID -> `VITE_INVO_RECEIVABLE_PACKAGE_ID`
 - Shared `InvoiceCounter` object ID -> `VITE_INVO_INVOICE_COUNTER_ID`
+- Shared `PlatformConfig` object ID -> `VITE_INVO_PLATFORM_CONFIG_ID`
 
 Use these in `.env` and Cloudflare Pages environment variables.

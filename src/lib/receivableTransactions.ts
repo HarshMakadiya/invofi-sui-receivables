@@ -61,7 +61,7 @@ export function buildBuyReceivableTx(input: BuyReceivableInput) {
   const financingCoin = coinWithBalance({ balance: suiToMist(input.financingPriceSui) });
   tx.moveCall({
     target: getReceivableTarget("buy_receivable"),
-    arguments: [tx.object(input.invoiceObjectId), financingCoin],
+    arguments: [tx.object(input.invoiceObjectId), tx.object(receivableContract.platformConfigId), financingCoin],
   });
   return tx;
 }

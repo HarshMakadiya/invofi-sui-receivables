@@ -14,6 +14,9 @@ module invonft::receivable {
     #[allow(unused_const)]
     const STATUS_DISPUTED: u8 = 3;
 
+    const DEFAULT_PLATFORM_FEE_BPS: u64 = 100;
+    const MAX_PLATFORM_FEE_BPS: u64 = 1000;
+
     const FINANCING_NOT_LISTED: u8 = 0;
     const FINANCING_LISTED: u8 = 1;
     const FINANCING_FINANCED: u8 = 2;
@@ -29,10 +32,19 @@ module invonft::receivable {
     const E_DUE_DATE_NOT_PASSED: u64 = 7;
     const E_EVIDENCE_LOCKED: u64 = 8;
     const E_NOT_PAYER: u64 = 9;
+    const E_NOT_CONFIG_OWNER: u64 = 10;
+    const E_BAD_FEE_BPS: u64 = 11;
 
     public struct InvoiceCounter has key {
         id: UID,
         next_invoice_number: u64,
+    }
+
+    public struct PlatformConfig has key {
+        id: UID,
+        owner: address,
+        fee_recipient: address,
+        fee_bps: u64,
     }
 
     public struct InvoiceReceivable has key, store {
@@ -76,6 +88,7 @@ module invonft::receivable {
         issuer: address,
         buyer: address,
         financing_price_mist: u64,
+        platform_fee_mist: u64,
     }
 
     public struct InvoicePaid has copy, drop {
@@ -92,9 +105,16 @@ module invonft::receivable {
     }
 
     fun init(ctx: &mut TxContext) {
+        let publisher = tx_context::sender(ctx);
         transfer::share_object(InvoiceCounter {
             id: object::new(ctx),
             next_invoice_number: 1,
+        });
+        transfer::share_object(PlatformConfig {
+            id: object::new(ctx),
+            owner: publisher,
+            fee_recipient: publisher,
+            fee_bps: DEFAULT_PLATFORM_FEE_BPS,
         });
     }
 
@@ -167,7 +187,8 @@ module invonft::receivable {
 
     public entry fun buy_receivable(
         invoice: &mut InvoiceReceivable,
-        payment: Coin<SUI>,
+        config: &PlatformConfig,
+        mut payment: Coin<SUI>,
         ctx: &mut TxContext,
     ) {
         assert!(invoice.status == STATUS_PENDING, E_NOT_PENDING);
@@ -179,6 +200,11 @@ module invonft::receivable {
         invoice.payment_recipient = buyer;
         invoice.financed_at_ms = 0;
 
+        let platform_fee_mist = invoice.financing_price_mist * config.fee_bps / 10000;
+        if (platform_fee_mist > 0) {
+            let fee = coin::split(&mut payment, platform_fee_mist, ctx);
+            transfer::public_transfer(fee, config.fee_recipient);
+        };
         transfer::public_transfer(payment, invoice.issuer);
 
         event::emit(ReceivableFinanced {
@@ -187,7 +213,21 @@ module invonft::receivable {
             issuer: invoice.issuer,
             buyer,
             financing_price_mist: invoice.financing_price_mist,
+            platform_fee_mist,
         });
+    }
+
+    public entry fun update_platform_fee(
+        config: &mut PlatformConfig,
+        fee_recipient: address,
+        fee_bps: u64,
+        ctx: &mut TxContext,
+    ) {
+        assert!(tx_context::sender(ctx) == config.owner, E_NOT_CONFIG_OWNER);
+        assert!(fee_bps <= MAX_PLATFORM_FEE_BPS, E_BAD_FEE_BPS);
+
+        config.fee_recipient = fee_recipient;
+        config.fee_bps = fee_bps;
     }
 
     public entry fun pay_invoice(
@@ -269,6 +309,14 @@ module invonft::receivable {
         invoice.amount_mist
     }
 
+    public fun platform_fee_bps(config: &PlatformConfig): u64 {
+        config.fee_bps
+    }
+
+    public fun platform_fee_recipient(config: &PlatformConfig): address {
+        config.fee_recipient
+    }
+
     #[test_only]
     fun invoice_for_testing(
         issuer: address,
@@ -319,14 +367,41 @@ module invonft::receivable {
         object::delete(id);
     }
 
+    #[test_only]
+    fun platform_config_for_testing(
+        owner: address,
+        fee_recipient: address,
+        fee_bps: u64,
+        ctx: &mut TxContext,
+    ): PlatformConfig {
+        PlatformConfig {
+            id: object::new(ctx),
+            owner,
+            fee_recipient,
+            fee_bps,
+        }
+    }
+
+    #[test_only]
+    fun destroy_config_for_testing(config: PlatformConfig) {
+        let PlatformConfig {
+            id,
+            owner: _,
+            fee_recipient: _,
+            fee_bps: _,
+        } = config;
+        object::delete(id);
+    }
+
     #[test]
     fun financing_routes_payment_to_buyer() {
         let mut ctx = tx_context::dummy();
         let mut invoice = invoice_for_testing(@0x0, @0x0, 100, &mut ctx);
+        let config = platform_config_for_testing(@0x0, @0x9, 100, &mut ctx);
         let financing_payment = coin::mint_for_testing<SUI>(90, &mut ctx);
 
         list_for_financing(&mut invoice, 90, 1000, &mut ctx);
-        buy_receivable(&mut invoice, financing_payment, &mut ctx);
+        buy_receivable(&mut invoice, &config, financing_payment, &mut ctx);
 
         assert!(financing_status(&invoice) == FINANCING_FINANCED, 0);
         assert!(payment_recipient(&invoice) == @0x0, 1);
@@ -335,7 +410,20 @@ module invonft::receivable {
         pay_invoice(&mut invoice, invoice_payment, &mut ctx);
 
         assert!(status(&invoice) == STATUS_PAID, 2);
+        destroy_config_for_testing(config);
         destroy_for_testing(invoice);
+    }
+
+    #[test]
+    fun platform_fee_can_be_updated_by_owner() {
+        let mut ctx = tx_context::dummy();
+        let mut config = platform_config_for_testing(@0x0, @0x9, 100, &mut ctx);
+
+        update_platform_fee(&mut config, @0x8, 250, &mut ctx);
+
+        assert!(platform_fee_recipient(&config) == @0x8, 0);
+        assert!(platform_fee_bps(&config) == 250, 1);
+        destroy_config_for_testing(config);
     }
 
     #[test]

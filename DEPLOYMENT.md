@@ -12,6 +12,7 @@ Use this before pushing a demo build or sharing the Cloudflare Pages URL.
   - `VITE_INVO_RECEIVABLE_PACKAGE_ID`
   - `VITE_INVO_RECEIVABLE_MODULE=receivable`
   - `VITE_INVO_INVOICE_COUNTER_ID`
+  - `VITE_INVO_PLATFORM_CONFIG_ID`
   - `VITE_WALRUS_PUBLISHER_URL`
   - `VITE_WALRUS_AGGREGATOR_URL`
   - `VITE_SUPABASE_URL`
@@ -37,8 +38,9 @@ in frontend environment variables.
    sui client publish --gas-budget 100000000
    ```
 
-4. Copy the published package ID and shared `InvoiceCounter` object ID into
-   `.env` locally and Cloudflare Pages environment variables.
+4. Copy the published package ID, shared `InvoiceCounter` object ID, and shared
+   `PlatformConfig` object ID into `.env` locally and Cloudflare Pages
+   environment variables.
 5. Create a receivable with a connected Testnet wallet.
 6. Confirm the created `InvoiceReceivable` object ID is stored in Supabase.
 7. Confirm the Public verification card links to Suiscan and Walrus.

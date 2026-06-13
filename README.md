@@ -46,6 +46,7 @@ Copy `.env.example` to `.env` after the Move package in `move/` is published:
 VITE_INVO_RECEIVABLE_PACKAGE_ID=0x...
 VITE_INVO_RECEIVABLE_MODULE=receivable
 VITE_INVO_INVOICE_COUNTER_ID=0x...
+VITE_INVO_PLATFORM_CONFIG_ID=0x...
 VITE_WALRUS_PUBLISHER_URL=https://publisher.walrus-testnet.walrus.space
 VITE_WALRUS_AGGREGATOR_URL=https://aggregator.walrus-testnet.walrus.space
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -77,8 +78,16 @@ sui move build
 sui client publish --gas-budget 100000000
 ```
 
-After publishing to Testnet, copy the package ID and shared `InvoiceCounter`
-object ID into `.env` and the same Cloudflare Pages environment variables.
+After publishing to Testnet, copy the package ID, shared `InvoiceCounter`
+object ID, and shared `PlatformConfig` object ID into `.env` and the same
+Cloudflare Pages environment variables.
+
+## Platform Fee
+
+The Move package creates a shared `PlatformConfig` at publish time. The default
+demo fee is `100 bps` (1%) and is charged when a buyer purchases receivable
+payment rights. The final payer settlement is not charged, so invoice payment
+still routes cleanly to the current payment recipient.
 
 ## Walrus Evidence
 
