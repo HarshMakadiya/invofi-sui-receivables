@@ -1,6 +1,20 @@
 import type { EvidencePackage, EvidencePackageInput } from "../types/evidence";
 
 export async function buildEvidencePackage(input: EvidencePackageInput): Promise<EvidencePackage> {
+  const lineItems =
+    input.lineItems && input.lineItems.length > 0
+      ? input.lineItems
+      : [
+          {
+            description: input.description,
+            quantity: 1,
+            unitPrice: input.amountSui,
+          },
+        ];
+
+  const lineItemTotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const amountMatchesLineItems = Math.abs(lineItemTotal - input.amountSui) < 1e-9;
+
   const packageWithoutChecksum = {
     version: 1 as const,
     invoiceNumber: input.invoiceNumber,
@@ -8,20 +22,14 @@ export async function buildEvidencePackage(input: EvidencePackageInput): Promise
     clientEmail: input.clientEmail,
     description: input.description,
     currency: "SUI" as const,
-    lineItems: [
-      {
-        description: input.description,
-        quantity: 1,
-        unitPrice: input.amountSui,
-      },
-    ],
+    lineItems,
     ...(input.invoicePdfBlobId ? { invoicePdfBlobId: input.invoicePdfBlobId } : {}),
     ...(input.invoicePdfFileName ? { invoicePdfFileName: input.invoicePdfFileName } : {}),
     metadataChecksum: "",
     verificationChecks: {
       payerWalletPresent: input.payerWalletPresent,
       pdfUploaded: input.pdfUploaded,
-      amountMatchesLineItems: true,
+      amountMatchesLineItems,
       dueDateValid: new Date(input.dueDate).getTime() > Date.now(),
       unpaid: true,
       walrusBlobAvailable: false,

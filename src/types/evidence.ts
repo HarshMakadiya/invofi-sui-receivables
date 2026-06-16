@@ -39,4 +39,5 @@ export type EvidencePackageInput = {
   pdfUploaded: boolean;
   invoicePdfBlobId?: string;
   invoicePdfFileName?: string;
+  lineItems?: EvidenceLineItem[];
 };

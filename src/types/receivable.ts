@@ -1,6 +1,6 @@
 export type WalletRole = "issuer" | "buyer" | "payer";
 
-export type Page = "dashboard" | "create" | "marketplace" | "portfolio";
+export type Page = "landing" | "dashboard" | "create" | "marketplace" | "portfolio";
 
 export type InvoiceStatus = "PENDING" | "PAID" | "OVERDUE";
 

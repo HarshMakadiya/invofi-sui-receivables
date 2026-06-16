@@ -6,10 +6,14 @@ export const wallets: Record<WalletRole, DemoWallet> = {
   payer: { label: "Payer", address: "0xpayer...91c", balance: 1250 },
 };
 
-export function evidence(options: { complete: boolean; unpaid: boolean }): Evidence {
+export function evidence(options: {
+  complete: boolean;
+  unpaid: boolean;
+  lineItemsMatch?: boolean;
+}): Evidence {
   return {
     invoicePdf: true,
-    lineItemsMatch: true,
+    lineItemsMatch: options.lineItemsMatch ?? true,
     payerWalletPresent: true,
     dueDateValid: true,
     unpaid: options.unpaid,

@@ -48,12 +48,45 @@ import {
 } from "./lib/receivableTransactions";
 import { fetchReceivablesFromDb, isSupabaseConfigured, saveReceivableToDb } from "./lib/supabaseReceivables";
 import { downloadEvidencePackage, evidenceUrl, uploadEvidencePackage, uploadWalrusBlob } from "./lib/walrus";
-import type { EvidencePackage } from "./types/evidence";
+import type { EvidenceLineItem, EvidencePackage } from "./types/evidence";
 import type { FinancingStatus, Invoice, InvoiceStatus, Page, WalletRole } from "./types/receivable";
 
 function readInvoiceIdFromLocation() {
   const match = window.location.pathname.match(/^\/invoice\/([^/]+)/);
   return match ? decodeURIComponent(match[1]) : "";
+}
+
+function readPageFromLocation(): Page {
+  const path = window.location.pathname;
+  if (path.startsWith("/invoice/")) return "dashboard";
+  if (path.startsWith("/dashboard")) return "dashboard";
+  if (path.startsWith("/create")) return "create";
+  if (path.startsWith("/marketplace")) return "marketplace";
+  if (path.startsWith("/portfolio")) return "portfolio";
+  return "landing";
+}
+
+function parseLineItems(raw: FormDataEntryValue | null): EvidenceLineItem[] {
+  if (typeof raw !== "string" || !raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => ({
+        description: String(item?.description ?? ""),
+        quantity: Number(item?.quantity) || 0,
+        unitPrice: Number(item?.unitPrice) || 0,
+      }))
+      .filter((item) => item.description.trim() !== "" || item.quantity > 0 || item.unitPrice > 0);
+  } catch {
+    return [];
+  }
 }
 
 function sameAddress(left: string | undefined, right: string | undefined) {
@@ -92,7 +125,7 @@ function App() {
   const account = useCurrentAccount();
   const suiClient = useCurrentClient();
   const dAppKit = useDAppKit();
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage] = useState<Page>(readPageFromLocation());
   const [walletRole, setWalletRole] = useState<WalletRole>("issuer");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(readInvoiceIdFromLocation());
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -141,6 +174,19 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function syncFromLocation() {
+      setPage(readPageFromLocation());
+      const linkedId = readInvoiceIdFromLocation();
+      if (linkedId) {
+        setSelectedInvoiceId(linkedId);
+      }
+    }
+
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
   const stats = useMemo(() => {
     const pending = invoices.filter((invoice) => invoice.status === "PENDING").length;
     const listed = invoices.filter((invoice) => invoice.financingStatus === "LISTED").length;
@@ -163,6 +209,11 @@ function App() {
   function selectInvoice(id: string) {
     setSelectedInvoiceId(id);
     window.history.replaceState(null, "", `/invoice/${encodeURIComponent(id)}`);
+  }
+
+  function navigate(nextPage: Page) {
+    setPage(nextPage);
+    window.history.pushState(null, "", nextPage === "landing" ? "/" : `/${nextPage}`);
   }
 
   function updateInvoice(nextInvoice: Invoice) {
@@ -439,7 +490,9 @@ function App() {
     const clientName = String(form.get("clientName"));
     const clientEmail = String(form.get("clientEmail"));
     const description = String(form.get("description"));
-    const amount = Number(form.get("amount"));
+    const lineItems = parseLineItems(form.get("lineItems"));
+    const lineItemsTotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const amount = Number(form.get("amount")) || lineItemsTotal;
     const dueDate = String(form.get("dueDate"));
     const payerWallet = String(form.get("payerWallet") ?? "").trim();
     const shouldUploadEvidence = form.get("uploadEvidence") === "on";
@@ -447,6 +500,13 @@ function App() {
     const selectedInvoiceFile = invoiceFile instanceof File && invoiceFile.size > 0 ? invoiceFile : null;
     const issuerAddress = account?.address ?? wallets.issuer.address;
     const payerAddress = payerWallet || (isProductionMode ? "" : wallets.payer.address);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify("Add at least one line item with a positive total before creating a receivable.");
+      return;
+    }
+
+    const lineItemsMatch = lineItems.length > 0 && Math.abs(lineItemsTotal - amount) < 1e-9;
 
     if (isProductionMode && !isSuiAddress(payerAddress)) {
       notify("Enter a valid payer wallet address before creating a receivable.");
@@ -495,6 +555,7 @@ function App() {
       pdfUploaded: Boolean(invoicePdfBlobId),
       invoicePdfBlobId,
       invoicePdfFileName: selectedInvoiceFile?.name,
+      lineItems,
     });
 
     if (shouldUploadEvidence) {
@@ -552,7 +613,7 @@ function App() {
       blobObjectId,
       metadataChecksum: evidencePackage.metadataChecksum,
       txDigest: createResult?.digest ?? undefined,
-      evidence: evidence({ complete: Boolean(invoicePdfBlobId), unpaid: true }),
+      evidence: evidence({ complete: Boolean(invoicePdfBlobId), unpaid: true, lineItemsMatch }),
       events: [
         "Receivable object drafted",
         evidenceEvent,
@@ -568,6 +629,16 @@ function App() {
     notify(`${invoice.id} created`);
   }
 
+  if (page === "landing") {
+    return (
+      <Landing
+        onLaunch={() => navigate("dashboard")}
+        onCreate={() => navigate("create")}
+        onMarketplace={() => navigate("marketplace")}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-paper text-ink font-sans">
       <div className="fixed inset-0 -z-10 grid-noise opacity-30" />
@@ -577,7 +648,7 @@ function App() {
       <div className="mx-auto flex min-h-screen w-full max-w-[1540px] gap-5 p-4 lg:p-5">
         <aside className="hidden w-[248px] shrink-0 self-start rounded-[1.1rem] bg-lead border border-line p-3 text-ink shadow-flat lg:block">
           <div className="rounded-[1rem] border border-line bg-paperalt/30 p-3">
-            <div className="flex items-center gap-3">
+            <button className="flex w-full items-center gap-3 text-left" onClick={() => navigate("landing")} type="button">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-moss text-base font-black text-lead shadow-flat">
                 IN
               </div>
@@ -585,7 +656,7 @@ function App() {
                 <p className="text-base font-bold tracking-tight text-ink font-poppins">InvoNFT</p>
                 <p className="text-[9px] text-inkmuted font-mono uppercase tracking-wider">Receivables console</p>
               </div>
-            </div>
+            </button>
 
             {!isProductionMode ? (
               <div className="mt-3 rounded-xl bg-paperalt/50 border border-line p-2.5">
@@ -620,10 +691,10 @@ function App() {
           </div>
 
           <nav className="mt-3 grid gap-1">
-            <NavItem active={page === "dashboard"} icon={<LayoutDashboard size={16} />} label="Command Center" onClick={() => setPage("dashboard")} />
-            <NavItem active={page === "create"} icon={<FilePlus2 size={16} />} label="Create Receivable" onClick={() => setPage("create")} />
-            <NavItem active={page === "marketplace"} icon={<Store size={16} />} label="Marketplace" onClick={() => setPage("marketplace")} />
-            <NavItem active={page === "portfolio"} icon={<WalletCards size={16} />} label="Buyer Portfolio" onClick={() => setPage("portfolio")} />
+            <NavItem active={page === "dashboard"} icon={<LayoutDashboard size={16} />} label="Command Center" onClick={() => navigate("dashboard")} />
+            <NavItem active={page === "create"} icon={<FilePlus2 size={16} />} label="Create Receivable" onClick={() => navigate("create")} />
+            <NavItem active={page === "marketplace"} icon={<Store size={16} />} label="Marketplace" onClick={() => navigate("marketplace")} />
+            <NavItem active={page === "portfolio"} icon={<WalletCards size={16} />} label="Buyer Portfolio" onClick={() => navigate("portfolio")} />
           </nav>
 
         </aside>
@@ -673,14 +744,14 @@ function App() {
 
               <button
                 className="rounded-2xl bg-moss px-5 py-3 text-xs font-poppins font-bold text-lead shadow-flat hover:bg-mossdeep transition-all duration-200 hover:-translate-y-0.5"
-                onClick={() => setPage("create")}
+                onClick={() => navigate("create")}
               >
                 New receivable
               </button>
             </div>
           </header>
 
-          <MobileNav page={page} onChange={setPage} />
+          <MobileNav page={page} onChange={navigate} />
 
           {page === "dashboard" && (
             <Dashboard
@@ -694,10 +765,10 @@ function App() {
               onList={requestListInvoice}
               onMarkOverdue={markInvoiceOverdue}
               onPay={payInvoice}
-              onCreate={() => setPage("create")}
+              onCreate={() => navigate("create")}
               onQuery={setQuery}
               onSelect={selectInvoice}
-              onShowMarketplace={() => setPage("marketplace")}
+              onShowMarketplace={() => navigate("marketplace")}
             />
           )}
           {page === "create" && <CreateReceivable isCreating={isCreating} onCreate={createInvoice} />}
@@ -721,6 +792,182 @@ function App() {
           onSubmit={(discountPercent) => listInvoice(listingInvoice, discountPercent)}
         />
       )}
+    </div>
+  );
+}
+
+function Landing({
+  onLaunch,
+  onCreate,
+  onMarketplace,
+}: {
+  onLaunch: () => void;
+  onCreate: () => void;
+  onMarketplace: () => void;
+}) {
+  const differentiators = [
+    {
+      icon: <ReceiptText size={20} />,
+      title: "Receivable object, not a static NFT",
+      body: "Each invoice is a live Sui Move object carrying amount, due date, payment recipient, financing status, and settlement logic.",
+    },
+    {
+      icon: <Banknote size={20} />,
+      title: "Payment-right financing",
+      body: "Issuers list unpaid invoices at a discount; buyers purchase the right to collect, and the payer settles to the current recipient.",
+    },
+    {
+      icon: <DatabaseZap size={20} />,
+      title: "Walrus evidence package",
+      body: "Invoices are backed by retrievable evidence and a checksum instead of opaque metadata, so buyers can verify before they finance.",
+    },
+    {
+      icon: <Gauge size={20} />,
+      title: "Deterministic health score",
+      body: "A transparent, rules-based score summarizes evidence completeness and invoice quality. No AI underwriting, no credit rating.",
+    },
+  ];
+
+  const marketRows = [
+    { problem: "Businesses wait 30/60/90 days to get paid", response: "Unpaid invoices become financeable Sui receivable objects" },
+    { problem: "Receivables are paper-heavy and opaque", response: "Walrus stores evidence; Sui stores state and payment rights" },
+    { problem: "Invoice financing requires trusting invoice quality", response: "Verification checklist and health score make buyer review easy" },
+    { problem: "Settlement must be automatic and non-custodial", response: "Payer signs; the contract routes funds to payment_recipient" },
+  ];
+
+  const steps = [
+    { icon: <FileCheck2 size={18} />, title: "Create", body: "Mint an invoice receivable with line items and Walrus-backed evidence." },
+    { icon: <Store size={18} />, title: "List", body: "Offer the unpaid invoice for financing at a chosen discount." },
+    { icon: <CircleDollarSign size={18} />, title: "Finance", body: "A buyer purchases payment rights; a platform fee routes on purchase." },
+    { icon: <ShieldCheck size={18} />, title: "Settle", body: "The payer pays the full amount to the current payment recipient." },
+  ];
+
+  return (
+    <div className="min-h-screen bg-paper text-ink font-sans">
+      <div className="fixed inset-0 -z-10 grid-noise opacity-30" />
+      <div className="fixed left-[-18rem] top-[-18rem] -z-10 h-[38rem] w-[38rem] rounded-full bg-mosssoft/20 blur-[100px]" />
+      <div className="fixed bottom-[-20rem] right-[-12rem] -z-10 h-[36rem] w-[36rem] rounded-full bg-sun/10 blur-[100px]" />
+
+      <div className="mx-auto w-full max-w-[1180px] px-4 py-5 lg:px-6">
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-moss text-base font-black text-lead shadow-flat">IN</div>
+            <div>
+              <p className="text-base font-bold tracking-tight text-ink font-poppins">InvoNFT</p>
+              <p className="text-[9px] text-inkmuted font-mono uppercase tracking-wider">Programmable receivables on Sui</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              className="hidden rounded-2xl border border-line bg-lead px-4 py-2.5 text-xs font-bold text-ink shadow-flat transition hover:bg-paperalt/50 sm:block"
+              onClick={onMarketplace}
+              type="button"
+            >
+              Marketplace
+            </button>
+            <SuiWalletPanel />
+            <button
+              className="rounded-2xl bg-moss px-5 py-2.5 text-xs font-poppins font-bold text-lead shadow-flat transition hover:bg-mossdeep hover:-translate-y-0.5"
+              onClick={onLaunch}
+              type="button"
+            >
+              Launch console
+            </button>
+          </div>
+        </header>
+
+        <section className="mt-16 grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div>
+            <p className="inline-flex items-center gap-1.5 rounded-full border border-moss/25 bg-mosssoft px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-moss font-mono">
+              <Network size={12} /> Sui Testnet · DeFi & Payments
+            </p>
+            <h1 className="mt-5 text-balance text-4xl font-black leading-[1.08] tracking-tight text-ink font-poppins md:text-5xl">
+              Turn unpaid invoices into programmable receivables.
+            </h1>
+            <p className="mt-5 max-w-xl text-balance text-sm leading-6 text-inksecondary">
+              InvoNFT converts invoices into live Sui Move objects that can be paid, verified, listed,
+              financed, and settled — using Walrus-backed evidence and non-custodial, Sui-native payment routing.
+              We are not minting invoice images. We are building receivables infrastructure on Sui.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <button
+                className="inline-flex items-center gap-2 rounded-2xl bg-moss px-6 py-3.5 text-xs font-bold text-lead shadow-flat transition hover:bg-mossdeep hover:-translate-y-0.5"
+                onClick={onLaunch}
+                type="button"
+              >
+                Open console <ArrowRight size={15} />
+              </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-2xl border border-line bg-lead px-6 py-3.5 text-xs font-bold text-ink shadow-flat transition hover:bg-paperalt/50"
+                onClick={onCreate}
+                type="button"
+              >
+                Create a receivable
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-[1.5rem] border border-line bg-lead p-5 shadow-flat">
+            {steps.map((step, index) => (
+              <div className="flex items-start gap-3" key={step.title}>
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-moss/25 bg-mosssoft text-moss">{step.icon}</div>
+                <div>
+                  <p className="text-xs font-bold text-ink font-poppins">
+                    {index + 1}. {step.title}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-5 text-inksecondary">{step.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-20 grid gap-4 sm:grid-cols-2">
+          {differentiators.map((item) => (
+            <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat" key={item.title}>
+              <div className="grid h-11 w-11 place-items-center rounded-2xl border border-moss/25 bg-mosssoft text-moss">{item.icon}</div>
+              <h3 className="mt-4 text-sm font-bold text-ink font-poppins">{item.title}</h3>
+              <p className="mt-1.5 text-xs leading-5 text-inksecondary">{item.body}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-20">
+          <h2 className="text-xl font-bold tracking-tight text-ink font-poppins">Why receivables, why now</h2>
+          <div className="mt-5 grid gap-3">
+            {marketRows.map((row) => (
+              <div className="grid gap-3 rounded-2xl border border-line bg-lead p-4 shadow-flat sm:grid-cols-[1fr_auto_1fr] sm:items-center" key={row.problem}>
+                <p className="text-xs leading-5 text-inksecondary">{row.problem}</p>
+                <ArrowRight className="hidden text-moss sm:block" size={16} />
+                <p className="text-xs font-semibold leading-5 text-ink">{row.response}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-16 flex flex-col items-start justify-between gap-5 rounded-[1.5rem] border border-moss/25 bg-mosssoft p-6 md:flex-row md:items-center">
+          <div>
+            <h2 className="text-lg font-bold tracking-tight text-ink font-poppins">Ready to walk the flow?</h2>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-inksecondary">
+              Connect a Sui Testnet wallet, create a receivable, list it for financing, and settle to the
+              current payment recipient — every action is verifiable on Suiscan and Walrus.
+            </p>
+          </div>
+          <button
+            className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-moss px-6 py-3.5 text-xs font-bold text-lead shadow-flat transition hover:bg-mossdeep hover:-translate-y-0.5"
+            onClick={onLaunch}
+            type="button"
+          >
+            Launch console <ArrowRight size={15} />
+          </button>
+        </section>
+
+        <footer className="mt-12 border-t border-line py-8 text-[11px] leading-5 text-inkmuted">
+          Non-custodial Sui Testnet prototype. It does not provide regulated financial services,
+          underwriting, credit ratings, securities offerings, investment advice, or fiat custody. Sui is the
+          settlement authority; the off-chain index is only a cache.
+        </footer>
+      </div>
     </div>
   );
 }
@@ -1423,6 +1670,27 @@ function CreateReceivable({
   isCreating: boolean;
   onCreate: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
+  const [lineItems, setLineItems] = useState<EvidenceLineItem[]>([
+    { description: "Mobile app design sprint", quantity: 1, unitPrice: 750 },
+  ]);
+
+  const lineItemsTotal = lineItems.reduce(
+    (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+    0,
+  );
+
+  function updateLineItem(index: number, patch: Partial<EvidenceLineItem>) {
+    setLineItems((current) => current.map((item, position) => (position === index ? { ...item, ...patch } : item)));
+  }
+
+  function addLineItem() {
+    setLineItems((current) => [...current, { description: "", quantity: 1, unitPrice: 0 }]);
+  }
+
+  function removeLineItem(index: number) {
+    setLineItems((current) => (current.length > 1 ? current.filter((_, position) => position !== index) : current));
+  }
+
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
       <form className="rounded-[1.25rem] border border-line bg-[#FFFDF7] p-5 shadow-flat md:p-7" onSubmit={onCreate}>
@@ -1444,7 +1712,6 @@ function CreateReceivable({
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Client name" name="clientName" defaultValue="Helio Supply" />
           <Field label="Client email" name="clientEmail" type="email" defaultValue="ap@helio.test" />
-          <Field label="Amount in SUI" name="amount" type="number" defaultValue="750" />
           <Field label="Due date" name="dueDate" type="date" defaultValue="2026-07-30" />
           <Field
             label="Payer wallet"
@@ -1455,12 +1722,70 @@ function CreateReceivable({
           <label className="grid gap-2 md:col-span-2">
             <span className="text-xs font-bold text-ink font-sans uppercase tracking-wider">Description</span>
             <textarea
-              className="min-h-32 rounded-xl border border-line bg-paper text-ink px-4 py-3 text-xs outline-none transition placeholder:text-inkmuted/60 focus:border-moss"
+              className="min-h-24 rounded-xl border border-line bg-paper text-ink px-4 py-3 text-xs outline-none transition placeholder:text-inkmuted/60 focus:border-moss"
               name="description"
               defaultValue="Mobile app design sprint"
               required
             />
           </label>
+
+          <div className="grid gap-2 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-ink font-sans uppercase tracking-wider">Line items</span>
+              <button
+                className="rounded-lg border border-line bg-lead px-3 py-1.5 text-[11px] font-bold text-ink shadow-flat transition hover:bg-paperalt/50"
+                onClick={addLineItem}
+                type="button"
+              >
+                + Add line
+              </button>
+            </div>
+            <div className="grid gap-2">
+              {lineItems.map((item, index) => (
+                <div className="grid grid-cols-[minmax(0,1fr)_64px_88px_auto] items-center gap-2" key={index}>
+                  <input
+                    className="min-w-0 rounded-xl border border-line bg-lead px-3 py-2.5 text-xs text-ink outline-none transition focus:border-moss"
+                    onChange={(event) => updateLineItem(index, { description: event.target.value })}
+                    placeholder="Line description"
+                    value={item.description}
+                  />
+                  <input
+                    className="min-w-0 rounded-xl border border-line bg-lead px-3 py-2.5 text-xs text-ink outline-none transition focus:border-moss font-numbers"
+                    min="0"
+                    onChange={(event) => updateLineItem(index, { quantity: Number(event.target.value) })}
+                    step="1"
+                    title="Quantity"
+                    type="number"
+                    value={item.quantity}
+                  />
+                  <input
+                    className="min-w-0 rounded-xl border border-line bg-lead px-3 py-2.5 text-xs text-ink outline-none transition focus:border-moss font-numbers"
+                    min="0"
+                    onChange={(event) => updateLineItem(index, { unitPrice: Number(event.target.value) })}
+                    step="0.01"
+                    title="Unit price in SUI"
+                    type="number"
+                    value={item.unitPrice}
+                  />
+                  <button
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-lead text-inksecondary shadow-flat transition hover:bg-paperalt/50 hover:text-coral disabled:opacity-40"
+                    disabled={lineItems.length === 1}
+                    onClick={() => removeLineItem(index)}
+                    title="Remove line"
+                    type="button"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-line bg-paperalt/40 px-4 py-3">
+              <span className="text-[11px] uppercase tracking-wider text-inkmuted font-poppins font-semibold">Invoice total</span>
+              <span className="text-sm font-bold text-ink font-numbers">{formatSui(lineItemsTotal)}</span>
+            </div>
+            <input name="amount" type="hidden" value={lineItemsTotal} />
+            <input name="lineItems" type="hidden" value={JSON.stringify(lineItems)} />
+          </div>
           <label className="flex items-start gap-3 rounded-xl border border-line bg-paperalt/30 p-4 md:col-span-2">
             <input className="mt-1.5 h-4 w-4 accent-moss rounded border-line" name="uploadEvidence" type="checkbox" />
             <span>
