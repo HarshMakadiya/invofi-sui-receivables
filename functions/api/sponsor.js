@@ -8,6 +8,10 @@ import { handleOptions, jsonResponse } from "../_shared/receivables.js";
 const DEFAULT_SUI_RPC_URL = "https://fullnode.testnet.sui.io:443";
 const SUI_COIN_TYPE = "0x2::sui::SUI";
 const GAS_BUDGET = 50_000_000; // 0.05 SUI ceiling per sponsored transaction
+const ALLOWED_FRAMEWORK_COIN_CALLS = {
+  coin: new Set(["destroy_zero", "into_balance", "redeem_funds", "send_funds", "zero"]),
+  balance: new Set(["redeem_funds", "zero"]),
+};
 
 export function onRequestOptions() {
   return handleOptions();
@@ -42,14 +46,27 @@ export async function onRequestPost({ request, env }) {
 
     const tx = Transaction.fromKind(fromBase64(kindB64));
 
-    // Abuse guard: only sponsor Move calls into our own receivable package.
+    // Abuse guard: sponsor receivable actions plus the Sui framework coin helper
+    // calls that the SDK inserts for USDC payments.
     const allowedPackage = (env.RECEIVABLE_PACKAGE_ID || env.VITE_INVO_RECEIVABLE_PACKAGE_ID || "").trim();
     if (allowedPackage) {
       const data = tx.getData();
       const commands = Array.isArray(data?.commands) ? data.commands : [];
       const moveCalls = commands.filter((command) => command?.MoveCall);
-      const onlyOurPackage = moveCalls.length > 0 && moveCalls.every((command) => command.MoveCall.package === allowedPackage);
-      if (!onlyOurPackage) {
+      const hasReceivableCall = moveCalls.some((command) => command.MoveCall.package === allowedPackage);
+      const onlyAllowedCalls =
+        moveCalls.length > 0 &&
+        moveCalls.every((command) => {
+          const moveCall = command.MoveCall;
+          if (moveCall.package === allowedPackage) {
+            return true;
+          }
+
+          const allowedFunctions = ALLOWED_FRAMEWORK_COIN_CALLS[moveCall.module];
+          return moveCall.package === "0x2" && Boolean(allowedFunctions?.has(moveCall.function));
+        });
+
+      if (!hasReceivableCall || !onlyAllowedCalls) {
         return jsonResponse({ error: "Sponsor only covers InvoNFT receivable transactions." }, { status: 403 });
       }
     }

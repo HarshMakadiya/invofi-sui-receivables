@@ -281,13 +281,16 @@ function App() {
   }
 
   async function executeSponsoredTransaction(transaction: ReturnType<typeof buildCreateReceivableTx>) {
-    // 1. Serialize just the transaction commands (no gas/sender yet).
+    // 1. Set sender before serialization so SDK coin helpers can resolve the
+    // user's USDC coins. Gas owner/payment is still attached by the sponsor.
+    transaction.setSender(activeAddress);
+    // 2. Serialize just the transaction commands.
     const kindBytes = await transaction.build({ client: suiClient, onlyTransactionKind: true });
-    // 2. Backend sponsor sets itself as gas owner, attaches its SUI, and signs.
+    // 3. Backend sponsor sets itself as gas owner, attaches its SUI, and signs.
     const sponsored = await requestSponsorship(activeAddress, kindBytes);
-    // 3. The connected wallet signs the exact sponsored bytes (authorizing the action).
+    // 4. The connected wallet signs the exact sponsored bytes (authorizing the action).
     const { signature: userSignature } = await dAppKit.signTransaction({ transaction: sponsored.txBytes });
-    // 4. Execute with both signatures (user + sponsor).
+    // 5. Execute with both signatures (user + sponsor).
     return suiClient.executeTransaction({
       transaction: fromBase64(sponsored.txBytes),
       signatures: [userSignature, sponsored.sponsorSignature],
@@ -364,7 +367,6 @@ function App() {
       : null;
 
     if (isLiveInvoice && !digest) {
-      notify("List transaction failed; persisted state was not changed.");
       return;
     }
 
@@ -405,7 +407,6 @@ function App() {
       : null;
 
     if (isLiveInvoice && !digest) {
-      notify("Buy transaction failed; persisted state was not changed.");
       return;
     }
 
@@ -438,7 +439,6 @@ function App() {
       : null;
 
     if (isLiveInvoice && !digest) {
-      notify("Overdue transaction failed; persisted state was not changed.");
       return;
     }
 
@@ -476,7 +476,6 @@ function App() {
       : null;
 
     if (isLiveInvoice && !digest) {
-      notify("Pay transaction failed; persisted state was not changed.");
       return;
     }
 
@@ -605,7 +604,9 @@ function App() {
 
     if (isProductionMode && !createResult?.createdObjectId) {
       setIsCreating(false);
-      notify("Create transaction failed; receivable was not saved.");
+      if (createResult) {
+        notify("Create transaction did not return a receivable object ID; receivable was not saved.");
+      }
       return;
     }
 
