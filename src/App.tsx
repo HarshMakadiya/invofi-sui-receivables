@@ -1453,19 +1453,21 @@ function InvoiceInspector({
         </div>
       </div>
 
-      <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
-        <h3 className="text-sm font-bold text-ink font-poppins">Object activity log</h3>
-        <div className="mt-4 grid gap-2">
-          {invoice.events.map((event, index) => (
-            <div key={`${event}-${index}`} className="flex gap-3 items-start">
-              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-paperalt/60 text-[10px] font-mono font-bold text-moss border border-line">
-                {String(index + 1).padStart(2, "0")}
+      {!isProductionMode && (
+        <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
+          <h3 className="text-sm font-bold text-ink font-poppins">Object activity log</h3>
+          <div className="mt-4 grid gap-2">
+            {invoice.events.map((event, index) => (
+              <div key={`${event}-${index}`} className="flex gap-3 items-start">
+                <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-paperalt/60 text-[10px] font-mono font-bold text-moss border border-line">
+                  {String(index + 1).padStart(2, "0")}
+                </div>
+                <p className="pt-0.5 text-[11px] leading-5 text-inksecondary font-sans">{event}</p>
               </div>
-              <p className="pt-0.5 text-[11px] leading-5 text-inksecondary font-sans">{event}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

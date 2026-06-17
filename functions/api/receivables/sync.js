@@ -37,6 +37,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     const notification = await maybeSendInvoiceEmail(env, savedInvoice, tx, request, alreadyIndexed);
+    console.log("Invoice email notification", notification.status, notification.reason || notification.id || "");
     return jsonResponse({ ...savedInvoice, notification });
   } catch (error) {
     console.error(error);

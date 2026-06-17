@@ -1,17 +1,25 @@
-const RESEND_EMAILS_URL = "https://api.resend.com/emails";
+const MAILERSEND_EMAILS_URL = "https://api.mailersend.com/v1/email";
 const DEFAULT_EXPLORER_URL = "https://suiscan.xyz/testnet";
 
 export function isInvoiceEmailConfigured(env) {
-  return Boolean(env.RESEND_API_KEY?.trim() && env.INVOICE_EMAIL_FROM?.trim());
+  return Boolean(env.MAILERSEND_API_KEY?.trim() && env.INVOICE_EMAIL_FROM?.trim());
 }
 
 export async function sendInvoiceCreatedEmail(env, invoice, options = {}) {
-  const apiKey = env.RESEND_API_KEY?.trim();
-  const from = env.INVOICE_EMAIL_FROM?.trim();
+  const apiKey = env.MAILERSEND_API_KEY?.trim();
+  const from = parseEmailIdentity(env.INVOICE_EMAIL_FROM?.trim());
+  const replyTo = parseEmailIdentity(env.INVOICE_REPLY_TO?.trim());
   const to = invoice.clientEmail?.trim();
 
-  if (!apiKey || !from) {
+  if (!apiKey) {
     return { status: "skipped", reason: "Email provider is not configured." };
+  }
+
+  if (!from?.email) {
+    return {
+      status: "skipped",
+      reason: "INVOICE_EMAIL_FROM must be a valid sender email, for example: InvoNFT <invoices@example.com>.",
+    };
   }
 
   if (!isEmailAddress(to)) {
@@ -26,24 +34,21 @@ export async function sendInvoiceCreatedEmail(env, invoice, options = {}) {
   const walrusUrl = invoice.blobId ? walrusEvidenceUrl(env, invoice.blobId, appBaseUrl) : undefined;
 
   const subject = `Invoice ${invoice.id} created on InvoNFT`;
-  const response = await fetch(RESEND_EMAILS_URL, {
+  const response = await fetch(MAILERSEND_EMAILS_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "Idempotency-Key": `invoice-created-${invoice.objectId || invoice.id}`.slice(0, 256),
+      "X-Requested-With": "XMLHttpRequest",
     },
     body: JSON.stringify({
       from,
-      to,
-      reply_to: env.INVOICE_REPLY_TO?.trim() || undefined,
+      to: [{ email: to, name: invoice.clientName || undefined }],
+      reply_to: replyTo?.email ? replyTo : undefined,
       subject,
       text: invoiceCreatedText(invoice, { invoiceUrl, suiObjectUrl, suiTxUrl, walrusUrl }),
       html: invoiceCreatedHtml(invoice, { invoiceUrl, suiObjectUrl, suiTxUrl, walrusUrl }),
-      tags: [
-        { name: "app", value: "invonft" },
-        { name: "event", value: "invoice_created" },
-      ],
+      tags: ["invonft", "invoice-created"],
     }),
   });
 
@@ -53,7 +58,7 @@ export async function sendInvoiceCreatedEmail(env, invoice, options = {}) {
   }
 
   const result = await response.json().catch(() => ({}));
-  return { status: "sent", provider: "resend", id: result.id };
+  return { status: "sent", provider: "mailersend", id: result.message_id || response.headers.get("x-message-id") };
 }
 
 function invoiceCreatedText(invoice, links) {
@@ -145,6 +150,21 @@ function walrusEvidenceUrl(env, blobId, appBaseUrl) {
 
 function isEmailAddress(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value ?? "");
+}
+
+function parseEmailIdentity(value) {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/^(.*?)<([^>]+)>$/);
+  if (match) {
+    const name = match[1].trim().replace(/^"|"$/g, "");
+    const email = match[2].trim();
+    return isEmailAddress(email) ? { email, ...(name ? { name } : {}) } : null;
+  }
+
+  return isEmailAddress(value) ? { email: value } : null;
 }
 
 function formatAmount(amount) {

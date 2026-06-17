@@ -147,15 +147,15 @@ browser.
 Server-side Cloudflare variables:
 
 ```bash
-RESEND_API_KEY=re_...
+MAILERSEND_API_KEY=mlsn_...
 INVOICE_EMAIL_FROM="InvoNFT <invoices@your-domain.com>"
 INVOICE_REPLY_TO=support@your-domain.com
 INVO_PUBLIC_APP_URL=https://invonft-sui-receivables.pages.dev
 ```
 
-If `RESEND_API_KEY` or `INVOICE_EMAIL_FROM` is missing, invoice creation still
-works and the notification is skipped. Emails are only attempted for the first
-successful index sync of an `InvoiceCreated` transaction; rejected wallet
+If `MAILERSEND_API_KEY` or `INVOICE_EMAIL_FROM` is missing, invoice creation
+still works and the notification is skipped. Emails are only attempted for the
+first successful index sync of an `InvoiceCreated` transaction; rejected wallet
 prompts, failed transactions, list/buy/pay actions, and already-indexed invoices
 do not send client email.
 
