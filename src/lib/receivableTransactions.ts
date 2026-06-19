@@ -1,5 +1,5 @@
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
-import { getReceivableTarget, receivableContract } from "./receivableContract";
+import { getReceivableEscrowTarget, getReceivableTarget, receivableContract } from "./receivableContract";
 import { paymentCoin, toBaseUnits } from "./coin";
 
 const SUI_CLOCK_OBJECT_ID = "0x6";
@@ -29,6 +29,15 @@ type PayInvoiceInput = ObjectInput & {
   amountSui: number;
 };
 
+type LockDepositInput = ObjectInput & {
+  amountSui: number;
+  gracePeriodMs: number;
+};
+
+type EscrowObjectInput = ObjectInput & {
+  escrowObjectId: string;
+};
+
 const coinTypeArgs = [paymentCoin.type];
 
 export function buildCreateReceivableTx(input: CreateReceivableInput) {
@@ -38,11 +47,11 @@ export function buildCreateReceivableTx(input: CreateReceivableInput) {
     typeArguments: coinTypeArgs,
     arguments: [
       tx.object(receivableContract.invoiceCounterId),
-      tx.pure.address(input.payer),
-      tx.pure.u64(toBaseUnits(input.amountSui)),
-      tx.pure.u64(input.dueDateMs),
-      tx.pure.string(input.blobId),
-      tx.pure.string(input.metadataChecksum),
+      tx.pure("address", input.payer),
+      tx.pure("u64", toBaseUnits(input.amountSui)),
+      tx.pure("u64", input.dueDateMs),
+      tx.pure("string", input.blobId),
+      tx.pure("string", input.metadataChecksum),
     ],
   });
   return tx;
@@ -65,8 +74,8 @@ export function buildListForFinancingTx(input: ListForFinancingInput) {
     typeArguments: coinTypeArgs,
     arguments: [
       tx.object(input.invoiceObjectId),
-      tx.pure.u64(toBaseUnits(input.financingPriceSui)),
-      tx.pure.u64(input.discountBps),
+      tx.pure("u64", toBaseUnits(input.financingPriceSui)),
+      tx.pure("u64", input.discountBps),
     ],
   });
   return tx;
@@ -74,7 +83,7 @@ export function buildListForFinancingTx(input: ListForFinancingInput) {
 
 export function buildBuyReceivableTx(input: BuyReceivableInput) {
   const tx = new Transaction();
-  const financingCoin = coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.financingPriceSui) });
+  const financingCoin = tx.add(coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.financingPriceSui) }));
   tx.moveCall({
     target: getReceivableTarget("buy_receivable"),
     typeArguments: coinTypeArgs,
@@ -85,7 +94,7 @@ export function buildBuyReceivableTx(input: BuyReceivableInput) {
 
 export function buildPayInvoiceTx(input: PayInvoiceInput) {
   const tx = new Transaction();
-  const settlementCoin = coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.amountSui) });
+  const settlementCoin = tx.add(coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.amountSui) }));
   tx.moveCall({
     target: getReceivableTarget("pay_invoice"),
     typeArguments: coinTypeArgs,
@@ -110,6 +119,42 @@ export function buildMarkOverdueTx(input: ObjectInput) {
     target: getReceivableTarget("mark_overdue"),
     typeArguments: coinTypeArgs,
     arguments: [tx.object(input.invoiceObjectId), tx.object(SUI_CLOCK_OBJECT_ID)],
+  });
+  return tx;
+}
+
+export function buildLockDepositTx(input: LockDepositInput) {
+  const tx = new Transaction();
+  const depositCoin = tx.add(coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.amountSui) }));
+  tx.moveCall({
+    target: getReceivableEscrowTarget("lock_deposit"),
+    typeArguments: [paymentCoin.type],
+    arguments: [
+      tx.object(input.invoiceObjectId),
+      depositCoin,
+      tx.pure("u64", input.gracePeriodMs),
+      tx.object(SUI_CLOCK_OBJECT_ID),
+    ],
+  });
+  return tx;
+}
+
+export function buildReleaseDepositTx(input: EscrowObjectInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: getReceivableEscrowTarget("release_deposit"),
+    typeArguments: [paymentCoin.type],
+    arguments: [tx.object(input.escrowObjectId), tx.object(input.invoiceObjectId)],
+  });
+  return tx;
+}
+
+export function buildClaimDepositTx(input: EscrowObjectInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: getReceivableEscrowTarget("claim_deposit"),
+    typeArguments: [paymentCoin.type],
+    arguments: [tx.object(input.escrowObjectId), tx.object(input.invoiceObjectId), tx.object(SUI_CLOCK_OBJECT_ID)],
   });
   return tx;
 }

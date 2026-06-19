@@ -90,6 +90,11 @@ contract work.
 
 ## Layer A — Security-deposit / bond escrow
 
+**Implementation status:** Published to Sui Testnet in package
+`0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6`.
+The Move module, event-verified index sync, Supabase fields, frontend transaction
+builders, and deposit UI are implemented; three-wallet smoke testing remains.
+
 New module `invonft::receivable_escrow`, same package as
 [receivable.move](move/sources/receivable.move). Reuses the lock/release/claim
 lifecycle pattern from the removed NFT escrow.

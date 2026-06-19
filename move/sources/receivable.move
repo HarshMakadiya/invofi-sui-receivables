@@ -334,6 +334,22 @@ module invonft::receivable {
         invoice.invoice_number
     }
 
+    public fun id<T>(invoice: &InvoiceReceivable<T>): ID {
+        object::id(invoice)
+    }
+
+    public fun payer<T>(invoice: &InvoiceReceivable<T>): address {
+        invoice.payer
+    }
+
+    public fun due_date_ms<T>(invoice: &InvoiceReceivable<T>): u64 {
+        invoice.due_date_ms
+    }
+
+    public fun is_paid<T>(invoice: &InvoiceReceivable<T>): bool {
+        invoice.status == STATUS_PAID
+    }
+
     public fun status<T>(invoice: &InvoiceReceivable<T>): u8 {
         invoice.status
     }
