@@ -1,7 +1,7 @@
 #[test_only]
-module invonft::receivable_escrow_tests {
-    use invonft::receivable;
-    use invonft::receivable_escrow;
+module invofi::receivable_escrow_tests {
+    use invofi::receivable;
+    use invofi::receivable_escrow;
     use sui::clock;
     use sui::coin;
     use sui::sui::SUI;

@@ -1,4 +1,4 @@
-module invonft::receivable {
+module invofi::receivable {
     use std::string::{Self, String};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, Coin};

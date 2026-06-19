@@ -2,7 +2,7 @@
 
 Use this before pushing a demo build or sharing the Cloudflare Pages URL.
 
-Live demo URL (legacy deployment slug): https://invonft-sui-receivables.pages.dev/
+Live demo URL: https://invofi.dpdns.org/
 
 ## Cloudflare Pages
 

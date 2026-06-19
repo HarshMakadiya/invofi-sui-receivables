@@ -120,7 +120,7 @@ Future improvement:
 Add a new Move module:
 
 ```text
-invonft::nft_escrow
+invofi::nft_escrow
 ```
 
 The module should be separate from `receivable.move` so invoice settlement logic
@@ -288,7 +288,7 @@ Add wallet actions:
 
 Sponsorship should support escrow calls:
 
-- Allow calls into `invonft::nft_escrow`.
+- Allow calls into `invofi::nft_escrow`.
 - Continue allowing only safe Sui framework coin/object helper calls.
 - Keep sponsor max gas budget.
 - Do not sponsor arbitrary NFT transfers outside escrow calls.

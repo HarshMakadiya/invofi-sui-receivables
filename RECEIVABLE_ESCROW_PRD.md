@@ -95,7 +95,7 @@ contract work.
 The Move module, event-verified index sync, Supabase fields, frontend transaction
 builders, and deposit UI are implemented; three-wallet smoke testing remains.
 
-New module `invonft::receivable_escrow`, same package as
+New module `invofi::receivable_escrow`, same package as
 [receivable.move](move/sources/receivable.move). Reuses the lock/release/claim
 lifecycle pattern from the removed NFT escrow.
 

@@ -2,7 +2,7 @@
 
 React + TypeScript + Tailwind frontend for the InvoFi PRD.
 
-Live demo (legacy deployment slug): https://invonft-sui-receivables.pages.dev/
+Live demo: https://invofi.dpdns.org/
 
 See [INVOFI_REBRAND_PRD.md](INVOFI_REBRAND_PRD.md) for the naming scope and
 legacy compatibility identifiers.
@@ -168,7 +168,7 @@ MAILJET_API_KEY=your_mailjet_api_key
 MAILJET_API_SECRET=your_mailjet_api_secret
 INVOICE_EMAIL_FROM="InvoFi <invoices@your-domain.com>"
 INVOICE_REPLY_TO=support@your-domain.com
-INVO_PUBLIC_APP_URL=https://invonft-sui-receivables.pages.dev
+INVO_PUBLIC_APP_URL=https://invofi.dpdns.org
 ```
 
 If `MAILJET_API_KEY`, `MAILJET_API_SECRET`, or `INVOICE_EMAIL_FROM` is missing, invoice creation
@@ -339,7 +339,7 @@ rules, and production guardrails.
 Recommended GitHub repo metadata:
 
 - Description: `Programmable invoice receivables on Sui with Walrus evidence and non-custodial payment-right financing.`
-- Website: `https://invonft-sui-receivables.pages.dev/`
+- Website: `https://invofi.dpdns.org/`
 - Topics: `sui`, `move`, `walrus`, `defi`, `payments`, `rwa`,
   `receivables`, `invoice-financing`, `react`, `vite`, `supabase`
 - Add screenshots or a short demo video to the repository description or

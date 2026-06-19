@@ -1,5 +1,5 @@
-module invonft::receivable_escrow {
-    use invonft::receivable::{Self, InvoiceReceivable};
+module invofi::receivable_escrow {
+    use invofi::receivable::{Self, InvoiceReceivable};
     use sui::balance::{Self, Balance};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, Coin};

@@ -2,10 +2,7 @@
 
 This package contains the Sui Move contract for programmable receivables.
 
-The public product is **InvoFi**. The published package intentionally retains
-the `invonft` named address and `invonft_receivables` package name for Testnet
-compatibility; changing those identifiers requires a separate contract
-publication plan.
+The public product is **InvoFi**. The Move package uses the `invofi` named address and `invofi_receivables` package name.
 
 ## What It Implements
 

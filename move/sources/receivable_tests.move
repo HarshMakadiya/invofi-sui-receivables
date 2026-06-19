@@ -1,10 +1,10 @@
 #[test_only]
-module invonft::receivable_tests {
+module invofi::receivable_tests {
     use std::string;
     use sui::coin;
     use sui::sui::SUI;
     use sui::tx_context;
-    use invonft::receivable;
+    use invofi::receivable;
 
     const STATUS_PAID: u8 = 1;
     const FINANCING_LISTED: u8 = 1;
