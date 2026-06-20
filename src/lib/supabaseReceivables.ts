@@ -1,4 +1,11 @@
-import type { DepositStatus, Evidence, FinancingStatus, Invoice, InvoiceStatus } from "../types/receivable";
+import type {
+  DepositStatus,
+  Evidence,
+  FinancingStatus,
+  Invoice,
+  InvoiceStatus,
+  SettlementStatus,
+} from "../types/receivable";
 
 type ReceivableRow = {
   id?: string;
@@ -27,6 +34,14 @@ type ReceivableRow = {
   deposit_amount_sui?: number | null;
   deposit_grace_period_ms?: number | null;
   deposit_tx?: string | null;
+  settlement_escrow_id?: string | null;
+  settlement_status?: SettlementStatus | null;
+  settlement_payer?: string | null;
+  settlement_amount_sui?: number | null;
+  settlement_delivery_confirmed?: boolean | null;
+  settlement_deadline_ms?: number | null;
+  settlement_delivery_proof_blob_id?: string | null;
+  settlement_tx?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -34,6 +49,7 @@ type ReceivableRow = {
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
 const receivablePackageId = import.meta.env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim() ?? "";
+const originalPackageId = import.meta.env.VITE_INVO_ORIGINAL_PACKAGE_ID?.trim() ?? receivablePackageId;
 
 export function isSupabaseConfigured() {
   return Boolean(supabaseUrl && supabaseAnonKey);
@@ -44,7 +60,7 @@ export async function fetchReceivablesFromDb() {
     return [];
   }
 
-  const packageFilter = receivablePackageId ? `&package_id=eq.${encodeURIComponent(receivablePackageId)}` : "";
+  const packageFilter = originalPackageId ? `&package_id=eq.${encodeURIComponent(originalPackageId)}` : "";
   const response = await fetch(`${restBaseUrl()}/receivables?select=*${packageFilter}&order=created_at.desc`, {
     headers: requestHeaders(),
   });
@@ -140,6 +156,14 @@ function invoiceToRow(invoice: Invoice): ReceivableRow {
     deposit_amount_sui: invoice.depositAmount ?? null,
     deposit_grace_period_ms: invoice.depositGracePeriodMs ?? null,
     deposit_tx: invoice.depositTx ?? null,
+    settlement_escrow_id: invoice.settlementEscrowId ?? null,
+    settlement_status: invoice.settlementStatus ?? null,
+    settlement_payer: invoice.settlementPayer ?? null,
+    settlement_amount_sui: invoice.settlementAmount ?? null,
+    settlement_delivery_confirmed: invoice.settlementDeliveryConfirmed ?? null,
+    settlement_deadline_ms: invoice.settlementDeadlineMs ?? null,
+    settlement_delivery_proof_blob_id: invoice.settlementDeliveryProofBlobId ?? null,
+    settlement_tx: invoice.settlementTx ?? null,
   };
 }
 
@@ -176,6 +200,14 @@ function rowToInvoice(row: ReceivableRow): Invoice {
     depositAmount: row.deposit_amount_sui == null ? undefined : Number(row.deposit_amount_sui),
     depositGracePeriodMs: row.deposit_grace_period_ms == null ? undefined : Number(row.deposit_grace_period_ms),
     depositTx: row.deposit_tx ?? undefined,
+    settlementEscrowId: row.settlement_escrow_id ?? undefined,
+    settlementStatus: row.settlement_status ?? undefined,
+    settlementPayer: row.settlement_payer ?? undefined,
+    settlementAmount: row.settlement_amount_sui == null ? undefined : Number(row.settlement_amount_sui),
+    settlementDeliveryConfirmed: row.settlement_delivery_confirmed ?? undefined,
+    settlementDeadlineMs: row.settlement_deadline_ms == null ? undefined : Number(row.settlement_deadline_ms),
+    settlementDeliveryProofBlobId: row.settlement_delivery_proof_blob_id ?? undefined,
+    settlementTx: row.settlement_tx ?? undefined,
     evidence: evidenceFromRow(status, payer, blobId, row.due_date),
     events: ["Loaded from Supabase index"],
   };

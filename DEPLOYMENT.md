@@ -13,6 +13,7 @@ Live demo URL: https://invofi.dpdns.org/
 - Environment variables:
   - `VITE_INVO_APP_MODE=production`
   - `VITE_INVO_RECEIVABLE_PACKAGE_ID`
+  - `VITE_INVO_ORIGINAL_PACKAGE_ID`
   - `VITE_INVO_RECEIVABLE_MODULE=receivable`
   - `VITE_INVO_ESCROW_MODULE=receivable_escrow`
   - `VITE_INVO_INVOICE_COUNTER_ID`
@@ -37,6 +38,7 @@ Cloudflare Pages Functions server-side variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUI_RPC_URL=https://fullnode.testnet.sui.io:443`
 - `RECEIVABLE_PACKAGE_ID`
+- `RECEIVABLE_ORIGINAL_PACKAGE_ID`
 - `RECEIVABLE_MODULE=receivable`
 - `RECEIVABLE_ESCROW_MODULE=receivable_escrow`
 - `SPONSOR_PRIVATE_KEY` optional secret used only by the sponsorship Function
@@ -47,8 +49,9 @@ Cloudflare Pages Functions server-side variables:
 
 `SUPABASE_SERVICE_ROLE_KEY` is secret. Store it only as a Cloudflare Pages
 environment variable for Functions. Do not add it to any `VITE_*` variable.
-`RECEIVABLE_PACKAGE_ID` is public, but setting it server-side lets the Function
-reject objects that do not belong to the deployed InvoFi package.
+`RECEIVABLE_PACKAGE_ID` is the latest package used for calls and sponsorship.
+`RECEIVABLE_ORIGINAL_PACKAGE_ID` is the stable object-type identity retained
+across upgrades. Both are public and are required after a package upgrade.
 
 `MAILJET_API_KEY` and `MAILJET_API_SECRET` are also secret. The email notification path runs only after
 a verified `InvoiceCreated` transaction is synced, and is skipped when email env
@@ -79,12 +82,14 @@ is not configured.
 
 Current public Testnet deployment:
 
-- Package ID: `0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6`
+- Current package ID (v2): `0x9d23d715ef896b652740efa738185e424094bb83eb982735f1b2283d1b9c0e4a`
+- Original package ID: `0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6`
 - InvoiceCounter ID: `0x09435a2fa5ba63b23fef3ae7ca154638e2a48f501b54cad96b7d6cc9d7231340`
 - PlatformConfig ID: `0x032312aa87962ed6707babf73871abf64e31cf6c82cb4b5463ac04fc891301f7`
 - Platform fee: `100 bps` (1%) to `0xd662f2a8ace3a6e61a50b29766fcd83b4e9f7b364974d738eab3b30550fc8cd4`
 - Fee configuration transaction: `4NJ3aZH2oj5zCyJP2QpMT32zgBDybK7tEGrDfA8ww5dp`
-- Publish transaction: `D2gkkL1ojxJt91SJADXVZA2Kgj5qwHQar1iQYACenBVz`
+- Upgrade transaction: `Cf7tqkkTDRQ7JZ6BRHp4c9ZQRw6qkWTBWCCBp5A7xZQz`
+- Original publish transaction: `D2gkkL1ojxJt91SJADXVZA2Kgj5qwHQar1iQYACenBVz`
 
 ## Live Demo Proof
 
@@ -163,6 +168,33 @@ create table if not exists public.receivables (
 --   add column if not exists deposit_amount_sui numeric,
 --   add column if not exists deposit_grace_period_ms bigint,
 --   add column if not exists deposit_tx text;
+
+-- Migration for Layer B settlement escrow:
+-- alter table public.receivables
+--   add column if not exists settlement_escrow_id text,
+--   add column if not exists settlement_status text,
+--   add column if not exists settlement_payer text,
+--   add column if not exists settlement_amount_sui numeric,
+--   add column if not exists settlement_delivery_confirmed boolean,
+--   add column if not exists settlement_deadline_ms bigint,
+--   add column if not exists settlement_delivery_proof_blob_id text,
+--   add column if not exists settlement_tx text;
+
+-- Layer C protocol-history reputation is a server-maintained projection.
+-- Browser roles receive SELECT only; verified syncs write with service_role.
+-- create table if not exists public.reputation (
+--   wallet text primary key,
+--   score integer not null default 50 check (score between 0 and 100),
+--   total_invoices integer not null default 0,
+--   acknowledged_invoices integer not null default 0,
+--   invoices_paid integer not null default 0,
+--   defaults integer not null default 0,
+--   bonds_honored integer not null default 0,
+--   deposits_claimed integer not null default 0,
+--   settlements integer not null default 0,
+--   settlement_refunds integer not null default 0,
+--   updated_at timestamptz not null default now()
+-- );
 
 -- Package-scoped identity keeps repeated invoice numbers from fresh Testnet
 -- deployments separate without deleting historical rows:

@@ -84,6 +84,14 @@ export function rowToInvoice(row) {
     depositAmount: row.deposit_amount_sui == null ? undefined : Number(row.deposit_amount_sui),
     depositGracePeriodMs: row.deposit_grace_period_ms == null ? undefined : Number(row.deposit_grace_period_ms),
     depositTx: row.deposit_tx ?? undefined,
+    settlementEscrowId: row.settlement_escrow_id ?? undefined,
+    settlementStatus: row.settlement_status ?? undefined,
+    settlementPayer: row.settlement_payer ?? undefined,
+    settlementAmount: row.settlement_amount_sui == null ? undefined : Number(row.settlement_amount_sui),
+    settlementDeliveryConfirmed: row.settlement_delivery_confirmed ?? undefined,
+    settlementDeadlineMs: row.settlement_deadline_ms == null ? undefined : Number(row.settlement_deadline_ms),
+    settlementDeliveryProofBlobId: row.settlement_delivery_proof_blob_id ?? undefined,
+    settlementTx: row.settlement_tx ?? undefined,
     evidence: evidenceFromRow(status, payer, blobId, row.due_date),
     events: ["Loaded from verified production index"],
   };
@@ -118,6 +126,121 @@ export function invoiceToRowFromChain(invoice, chainInvoice) {
     metadata_checksum: chainFields?.metadata_checksum ?? invoice.metadataChecksum ?? null,
     acknowledged_at_ms: chainFields ? Number(chainFields.acknowledged_at_ms) : invoice.acknowledgedAtMs ?? null,
     acknowledged_tx: invoice.acknowledgedTx ?? null,
+    settlement_escrow_id: invoice.settlementEscrowId ?? null,
+    settlement_status: invoice.settlementStatus ?? null,
+    settlement_payer: invoice.settlementPayer ?? null,
+    settlement_amount_sui: invoice.settlementAmount ?? null,
+    settlement_delivery_confirmed: invoice.settlementDeliveryConfirmed ?? null,
+    settlement_deadline_ms: invoice.settlementDeadlineMs ?? null,
+    settlement_delivery_proof_blob_id: invoice.settlementDeliveryProofBlobId ?? null,
+    settlement_tx: invoice.settlementTx ?? null,
+  };
+}
+
+export function calculateWalletReputation(wallet, rows) {
+  const normalizedWallet = String(wallet ?? "").toLowerCase();
+  const relatedRows = rows.filter((row) =>
+    [row.issuer_wallet, row.payer_wallet, row.buyer_wallet, row.deposit_depositor, row.settlement_payer]
+      .some((address) => String(address ?? "").toLowerCase() === normalizedWallet),
+  );
+  const payerRows = relatedRows.filter((row) => String(row.payer_wallet ?? "").toLowerCase() === normalizedWallet);
+  const acknowledgedInvoices = payerRows.filter((row) => Number(row.acknowledged_at_ms ?? 0) > 0).length;
+  const invoicesPaid = payerRows.filter((row) => row.status === "PAID").length;
+  const defaults = payerRows.filter((row) => row.status === "OVERDUE" || row.deposit_status === "CLAIMED").length;
+  const bondsHonored = relatedRows.filter(
+    (row) => String(row.deposit_depositor ?? "").toLowerCase() === normalizedWallet && row.deposit_status === "RELEASED",
+  ).length;
+  const depositsClaimed = relatedRows.filter(
+    (row) => String(row.buyer_wallet ?? row.issuer_wallet ?? "").toLowerCase() === normalizedWallet && row.deposit_status === "CLAIMED",
+  ).length;
+  const settlements = relatedRows.filter(
+    (row) => String(row.settlement_payer ?? "").toLowerCase() === normalizedWallet && row.settlement_status === "RELEASED",
+  ).length;
+  const settlementRefunds = relatedRows.filter(
+    (row) => String(row.settlement_payer ?? "").toLowerCase() === normalizedWallet && row.settlement_status === "REFUNDED",
+  ).length;
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      50 +
+        Math.min(acknowledgedInvoices, 5) * 3 +
+        Math.min(invoicesPaid, 5) * 6 +
+        Math.min(bondsHonored, 3) * 4 +
+        Math.min(settlements, 3) * 6 -
+        defaults * 20 -
+        settlementRefunds * 5,
+    ),
+  );
+
+  return {
+    wallet: wallet,
+    score,
+    total_invoices: relatedRows.length,
+    acknowledged_invoices: acknowledgedInvoices,
+    invoices_paid: invoicesPaid,
+    defaults,
+    bonds_honored: bondsHonored,
+    deposits_claimed: depositsClaimed,
+    settlements,
+    settlement_refunds: settlementRefunds,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function refreshReputations(env, wallets) {
+  const { baseUrl, serviceRoleKey } = getSupabaseConfig(env);
+  const packageId = env.RECEIVABLE_ORIGINAL_PACKAGE_ID?.trim() || env.RECEIVABLE_PACKAGE_ID?.trim() || env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim();
+  const packageFilter = packageId ? `&package_id=eq.${encodeURIComponent(packageId)}` : "";
+  const response = await fetch(`${baseUrl}/rest/v1/receivables?select=*${packageFilter}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load reputation inputs: ${response.status} ${response.statusText}`);
+  }
+
+  const rows = await response.json();
+  const uniqueWallets = [...new Set(wallets.filter(isSuiAddress).map((wallet) => wallet.toLowerCase()))];
+  if (uniqueWallets.length === 0) {
+    return [];
+  }
+
+  const reputations = uniqueWallets.map((wallet) => calculateWalletReputation(wallet, rows));
+  const upsertResponse = await fetch(`${baseUrl}/rest/v1/reputation?on_conflict=wallet`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey, "resolution=merge-duplicates,return=representation"),
+    body: JSON.stringify(reputations),
+  });
+  if (!upsertResponse.ok) {
+    throw new Error(`Reputation update failed: ${upsertResponse.status} ${upsertResponse.statusText}`);
+  }
+  return upsertResponse.json();
+}
+
+export async function fetchReputationMap(env) {
+  const { baseUrl, serviceRoleKey } = getSupabaseConfig(env);
+  const response = await fetch(`${baseUrl}/rest/v1/reputation?select=*`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load reputation: ${response.status} ${response.statusText}`);
+  }
+  const rows = await response.json();
+  return new Map(rows.map((row) => [String(row.wallet).toLowerCase(), reputationFromRow(row)]));
+}
+
+function reputationFromRow(row) {
+  return {
+    wallet: row.wallet,
+    score: Number(row.score),
+    totalInvoices: Number(row.total_invoices),
+    acknowledgedInvoices: Number(row.acknowledged_invoices),
+    invoicesPaid: Number(row.invoices_paid),
+    defaults: Number(row.defaults),
+    bondsHonored: Number(row.bonds_honored),
+    depositsClaimed: Number(row.deposits_claimed),
+    settlements: Number(row.settlements),
+    settlementRefunds: Number(row.settlement_refunds),
   };
 }
 
@@ -184,7 +307,11 @@ export function transactionHasEvent(tx, eventName) {
 }
 
 export function escrowUpdateFromTransaction(env, tx, invoiceObjectId) {
-  const expectedPackageId = env.RECEIVABLE_PACKAGE_ID?.trim() || env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim();
+  const expectedPackageIds = [
+    env.RECEIVABLE_ORIGINAL_PACKAGE_ID?.trim(),
+    env.RECEIVABLE_PACKAGE_ID?.trim(),
+    env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim(),
+  ].filter(Boolean).map((packageId) => packageId.toLowerCase());
   const expectedModule = env.RECEIVABLE_ESCROW_MODULE?.trim() || "receivable_escrow";
   const events = Array.isArray(tx?.events) ? tx.events : [];
 
@@ -194,7 +321,7 @@ export function escrowUpdateFromTransaction(env, tx, invoiceObjectId) {
     if (parts.length < 3 || parts[1] !== expectedModule) {
       continue;
     }
-    if (expectedPackageId && parts[0].toLowerCase() !== expectedPackageId.toLowerCase()) {
+    if (expectedPackageIds.length > 0 && !expectedPackageIds.includes(parts[0].toLowerCase())) {
       continue;
     }
 
@@ -226,6 +353,37 @@ export function escrowUpdateFromTransaction(env, tx, invoiceObjectId) {
         deposit_tx: tx.digest ?? null,
       };
     }
+    if (eventName === "SettlementEscrowed") {
+      return {
+        settlement_escrow_id: String(data.escrow_id ?? ""),
+        settlement_status: "ESCROWED",
+        settlement_payer: String(data.payer ?? ""),
+        settlement_amount_sui: fromBaseUnits(normalizeU64(data.amount)),
+        settlement_delivery_confirmed: false,
+        settlement_deadline_ms: Number(normalizeU64(data.deadline_ms)),
+        settlement_tx: tx.digest ?? null,
+      };
+    }
+    if (eventName === "DeliveryConfirmed") {
+      return {
+        settlement_delivery_confirmed: true,
+        settlement_delivery_proof_blob_id: normalizeMoveString(data.evidence_blob_id),
+        settlement_tx: tx.digest ?? null,
+      };
+    }
+    if (eventName === "SettlementReleased") {
+      return {
+        settlement_status: "RELEASED",
+        settlement_delivery_confirmed: true,
+        settlement_tx: tx.digest ?? null,
+      };
+    }
+    if (eventName === "SettlementRefunded") {
+      return {
+        settlement_status: "REFUNDED",
+        settlement_tx: tx.digest ?? null,
+      };
+    }
   }
 
   return null;
@@ -255,7 +413,7 @@ export async function fetchSuiReceivableObject(env, objectId) {
     throw new Error("Receivable object was not found on Sui.");
   }
 
-  const expectedPackageId = env.RECEIVABLE_PACKAGE_ID?.trim() || env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim();
+  const expectedPackageId = env.RECEIVABLE_ORIGINAL_PACKAGE_ID?.trim() || env.RECEIVABLE_PACKAGE_ID?.trim() || env.VITE_INVO_RECEIVABLE_PACKAGE_ID?.trim();
   const expectedModule = env.RECEIVABLE_MODULE?.trim() || env.VITE_INVO_RECEIVABLE_MODULE?.trim() || "receivable";
   // The object is generic over the payment coin, so its type carries a
   // `<...::usdc::USDC>` argument (e.g. `PKG::receivable::InvoiceReceivable<...>`).

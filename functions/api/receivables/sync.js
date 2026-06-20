@@ -7,6 +7,7 @@ import {
   isSuccessfulTransaction,
   jsonResponse,
   receivableExists,
+  refreshReputations,
   transactionHasEvent,
   transactionTouchesObject,
   upsertInvoice,
@@ -36,6 +37,12 @@ export async function onRequestPost({ request, env }) {
     const savedInvoice = await upsertInvoice(env, invoice, chainInvoice, escrowUpdate);
     if (!savedInvoice) {
       return jsonResponse({ error: "Receivable sync did not return a saved invoice." }, { status: 500 });
+    }
+
+    try {
+      await refreshReputations(env, [savedInvoice.issuer, savedInvoice.payer, savedInvoice.buyer].filter(Boolean));
+    } catch (error) {
+      console.error("Reputation refresh failed", error);
     }
 
     const notification = await maybeSendInvoiceEmail(env, savedInvoice, tx, request, alreadyIndexed);

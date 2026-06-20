@@ -8,6 +8,21 @@ export type FinancingStatus = "NOT_LISTED" | "LISTED" | "FINANCED" | "CANCELLED"
 
 export type DepositStatus = "LOCKED" | "RELEASED" | "CLAIMED";
 
+export type SettlementStatus = "ESCROWED" | "RELEASED" | "REFUNDED";
+
+export type Reputation = {
+  wallet: string;
+  score: number;
+  totalInvoices: number;
+  acknowledgedInvoices: number;
+  invoicesPaid: number;
+  defaults: number;
+  bondsHonored: number;
+  depositsClaimed: number;
+  settlements: number;
+  settlementRefunds: number;
+};
+
 export type Evidence = {
   invoicePdf: boolean;
   lineItemsMatch: boolean;
@@ -46,6 +61,17 @@ export type Invoice = {
   depositAmount?: number;
   depositGracePeriodMs?: number;
   depositTx?: string;
+  settlementEscrowId?: string;
+  settlementStatus?: SettlementStatus;
+  settlementPayer?: string;
+  settlementAmount?: number;
+  settlementDeliveryConfirmed?: boolean;
+  settlementDeadlineMs?: number;
+  settlementDeliveryProofBlobId?: string;
+  settlementTx?: string;
+  issuerReputation?: Reputation;
+  payerReputation?: Reputation;
+  buyerReputation?: Reputation;
   evidence: Evidence;
   events: string[];
 };

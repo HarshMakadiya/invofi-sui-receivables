@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:score": "node scripts/test-health-score.mjs"
+    "test:score": "node scripts/test-health-score.mjs",
+    "test:indexer": "node scripts/test-escrow-indexer.mjs",
+    "test:reputation": "node scripts/test-reputation.mjs"
   },
   "dependencies": {
     "@mysten/dapp-kit-react": "^2.0.3",

@@ -374,6 +374,26 @@ module invofi::receivable {
         invoice.acknowledged_at_ms > 0
     }
 
+    /// Marks an invoice paid when its full balance is released by the package's
+    /// settlement escrow. Funds are transferred by the escrow module.
+    public(package) fun settle_from_escrow<T>(
+        invoice: &mut InvoiceReceivable<T>,
+        clock: &Clock,
+    ) {
+        assert!(invoice.status == STATUS_PENDING || invoice.status == STATUS_OVERDUE, E_ALREADY_PAID);
+
+        invoice.status = STATUS_PAID;
+        invoice.paid_at_ms = clock::timestamp_ms(clock);
+
+        event::emit(InvoicePaid {
+            invoice_id: object::id(invoice),
+            invoice_number: invoice.invoice_number,
+            payer: invoice.payer,
+            payment_recipient: invoice.payment_recipient,
+            amount_mist: invoice.amount_mist,
+        });
+    }
+
     public fun platform_fee_bps(config: &PlatformConfig): u64 {
         config.fee_bps
     }

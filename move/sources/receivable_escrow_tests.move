@@ -1,5 +1,6 @@
 #[test_only]
 module invofi::receivable_escrow_tests {
+    use std::string;
     use invofi::receivable;
     use invofi::receivable_escrow;
     use sui::clock;
@@ -142,6 +143,194 @@ module invofi::receivable_escrow_tests {
 
         receivable::pay_invoice(&mut invoice, payment, &mut ctx);
         receivable_escrow::claim_deposit(escrow, &invoice, &test_clock, &mut ctx);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    fun confirmed_delivery_releases_full_payment_and_settles_invoice() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 40, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 41, 0, 0, 0);
+        let mut invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let mut escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            false,
+            2000,
+            0,
+            &mut payer_ctx,
+        );
+        let mut test_clock = clock::create_for_testing(&mut issuer_ctx);
+        clock::set_for_testing(&mut test_clock, 500);
+        assert!(tx_context::sender(&payer_ctx) == @0x2, 100);
+        assert!(receivable_escrow::settlement_payer(&escrow) == @0x2, 101);
+
+        receivable_escrow::confirm_delivery(
+            &mut escrow,
+            &invoice,
+            string::utf8(b"walrus-delivery-proof"),
+            &mut payer_ctx,
+        );
+        assert!(receivable_escrow::delivery_confirmed(&escrow), 0);
+
+        let mut releaser_ctx = tx_context::new_from_hint(@0x9, 42, 0, 0, 0);
+        receivable_escrow::release_settlement(escrow, &mut invoice, &test_clock, &mut releaser_ctx);
+        assert!(receivable::is_paid(&invoice), 1);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    fun unconfirmed_settlement_refunds_payer_after_deadline() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 50, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 51, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            false,
+            1000,
+            0,
+            &mut payer_ctx,
+        );
+        let mut test_clock = clock::create_for_testing(&mut issuer_ctx);
+        clock::set_for_testing(&mut test_clock, 1001);
+
+        receivable_escrow::refund_settlement(escrow, &invoice, &test_clock, &mut payer_ctx);
+        assert!(!receivable::is_paid(&invoice), 0);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_INCORRECT_SETTLEMENT_AMOUNT)]
+    fun settlement_requires_exact_invoice_amount() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 60, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 61, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let payment = coin::mint_for_testing<SUI>(99, &mut payer_ctx);
+        let test_clock = clock::create_for_testing(&mut issuer_ctx);
+
+        receivable_escrow::escrow_payment(&invoice, payment, 1000, &test_clock, &mut payer_ctx);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_NOT_PAYER)]
+    fun only_invoice_payer_can_escrow_payment() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 70, 0, 0, 0);
+        let mut stranger_ctx = tx_context::new_from_hint(@0x3, 71, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let payment = coin::mint_for_testing<SUI>(100, &mut stranger_ctx);
+        let test_clock = clock::create_for_testing(&mut issuer_ctx);
+
+        receivable_escrow::escrow_payment(&invoice, payment, 1000, &test_clock, &mut stranger_ctx);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_NOT_PAYER)]
+    fun only_payer_can_confirm_delivery() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 80, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 81, 0, 0, 0);
+        let mut stranger_ctx = tx_context::new_from_hint(@0x3, 82, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let mut escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            false,
+            2000,
+            0,
+            &mut payer_ctx,
+        );
+
+        receivable_escrow::confirm_delivery(
+            &mut escrow,
+            &invoice,
+            string::utf8(b"walrus-delivery-proof"),
+            &mut stranger_ctx,
+        );
+
+        receivable_escrow::destroy_settlement_for_testing(escrow);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_DELIVERY_NOT_CONFIRMED)]
+    fun settlement_cannot_release_before_delivery_confirmation() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 90, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 91, 0, 0, 0);
+        let mut invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            false,
+            2000,
+            0,
+            &mut payer_ctx,
+        );
+        let test_clock = clock::create_for_testing(&mut issuer_ctx);
+
+        receivable_escrow::release_settlement(escrow, &mut invoice, &test_clock, &mut issuer_ctx);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_REFUND_TOO_EARLY)]
+    fun payer_cannot_refund_before_deadline() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 100, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 101, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            false,
+            2000,
+            0,
+            &mut payer_ctx,
+        );
+        let mut test_clock = clock::create_for_testing(&mut issuer_ctx);
+        clock::set_for_testing(&mut test_clock, 2000);
+
+        receivable_escrow::refund_settlement(escrow, &invoice, &test_clock, &mut payer_ctx);
+
+        clock::destroy_for_testing(test_clock);
+        receivable::destroy_for_testing(invoice);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = receivable_escrow::E_DELIVERY_CONFIRMED)]
+    fun confirmed_settlement_cannot_be_refunded() {
+        let mut issuer_ctx = tx_context::new_from_hint(@0x1, 110, 0, 0, 0);
+        let mut payer_ctx = tx_context::new_from_hint(@0x2, 111, 0, 0, 0);
+        let invoice = receivable::invoice_for_testing<SUI>(@0x1, @0x2, 100, &mut issuer_ctx);
+        let escrow = receivable_escrow::settlement_for_testing<SUI>(
+            &invoice,
+            @0x2,
+            100,
+            true,
+            1000,
+            0,
+            &mut payer_ctx,
+        );
+        let mut test_clock = clock::create_for_testing(&mut issuer_ctx);
+        clock::set_for_testing(&mut test_clock, 1001);
+
+        receivable_escrow::refund_settlement(escrow, &invoice, &test_clock, &mut payer_ctx);
 
         clock::destroy_for_testing(test_clock);
         receivable::destroy_for_testing(invoice);

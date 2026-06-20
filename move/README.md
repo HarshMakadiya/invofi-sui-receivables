@@ -21,6 +21,10 @@ The public product is **InvoFi**. The Move package uses the `invofi` named addre
 - `receivable_escrow::lock_deposit`
 - `receivable_escrow::release_deposit`
 - `receivable_escrow::claim_deposit`
+- `receivable_escrow::escrow_payment`
+- `receivable_escrow::confirm_delivery`
+- `receivable_escrow::release_settlement`
+- `receivable_escrow::refund_settlement`
 
 The critical invariant is:
 
@@ -47,7 +51,9 @@ The tests cover the core demo invariants: financing updates the payment
 recipient, only the configured payer can pay, and paid invoices cannot be paid
 again. They also cover owner-controlled platform fee updates, cancel listing,
 evidence updates, invalid financing prices, payer acknowledgement, and security
-deposit release/default-claim authorization and timing.
+deposit release/default-claim authorization and timing. Settlement tests cover
+full-payment escrow, payer-only funding and confirmation, delivery-gated
+release, deadline refunds, and terminal-state protections.
 
 ## Publish To Testnet
 

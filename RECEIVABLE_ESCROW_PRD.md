@@ -127,6 +127,12 @@ The beneficiary is intentionally **not stored** — `claim_deposit` reads the li
 
 ## Layer B — Escrowed settlement
 
+**Implementation status:** Move lifecycle, 8 focused settlement tests, frontend
+transaction builders and role-gated controls, Walrus delivery proof, Supabase
+columns, and Sui-event-derived index updates are implemented locally. A package
+publish/upgrade and three-wallet Testnet smoke test remain before this layer is
+deployed.
+
 ```move
 public struct SettlementEscrow<phantom CoinT> has key, store {
     id: UID,
@@ -181,6 +187,12 @@ public(package) fun settle_from_escrow<T>(invoice: &mut InvoiceReceivable<T>, cl
 - B refund: no confirmation past deadline → payer refunds; cannot refund after confirmation; non-payer cannot escrow/confirm/refund; wrong amount rejected.
 
 ## Layer C — Reputation (indexer-first)
+
+**Implementation status:** Implemented as an explainable, indexer-derived
+protocol history score. The Supabase table is publicly readable but writable
+only by the service role; verified transaction syncs recompute affected wallets.
+The inspector and marketplace display issuer/payer history badges. This is not
+presented as underwriting or a credit rating.
 
 Derive a per-wallet score from indexed events; no new contract initially (the
 history is the moat; promote to an on-chain registry later).
@@ -253,13 +265,13 @@ Layer B's delivery proof reuses the existing evidence pipeline —
 its event.
 
 ## Build phases
-0. **Payer acknowledgement — Move:** add `acknowledged_at_ms` + `acknowledge_invoice` + `list_for_financing` gate + accessor + tests; update test helpers. Frontend acknowledge action + listing gate + badge; Supabase `acknowledged_*` columns. `sui move test` + `tsc`/`vite` green.
-1. **A — Move:** `receivable_escrow` DepositEscrow + accessors + tests. `sui move test` green.
-2. **B — Move:** SettlementEscrow + `settle_from_escrow` + tests. `sui move test` green.
-3. **Frontend A+B:** contract config, tx builders, types, inspector panel, marketplace badges, create toggles. `tsc` + `vite` green.
-4. **Indexing A+B:** Supabase columns, event-driven `escrow.js`, browser mapping.
-5. **C — Reputation:** indexer scoring + `reputation` table + UI badges.
-6. **Ship:** republish/upgrade package, update `.env`, Supabase migration, three-wallet demo.
+0. **Complete — Payer acknowledgement:** Move gate, tests, frontend action, badge, and indexed fields.
+1. **Complete — A / deposit escrow:** Move lifecycle, tests, event-verified indexing, and role-gated UI.
+2. **Complete locally — B / settlement escrow:** full-payment escrow, delivery confirmation, release/refund, and 8 focused Move tests.
+3. **Complete for inspector flow — Frontend A+B:** contract config, tx builders, types, role/state controls, modals, and verification links. Create-form policy toggles and marketplace badges remain optional UX follow-ups.
+4. **Complete — Indexing A+B:** Supabase columns, browser mapping, and Sui-event-derived updates through the verified sync endpoint.
+5. **Complete — C / reputation:** deterministic indexer scoring, protected `reputation` table, and issuer/payer UI badges.
+6. **Complete — Ship Layer B:** version 2 is published at `0x9d23d715ef896b652740efa738185e424094bb83eb982735f1b2283d1b9c0e4a` (upgrade transaction `Cf7tqkkTDRQ7JZ6BRHp4c9ZQRw6qkWTBWCCBp5A7xZQz`). Cloudflare production IDs are configured. A real issuer/buyer/payer Testnet flow completed through create, acknowledge, list, finance, escrow, delivery confirmation, and release; final settlement transaction: `4wVrK66YqP1rj6ncN7pH9KdGba3XmQvYxfkg6eE1skgW`.
 
 ## Verification
 - `sui move test` — acknowledgement (payer-only, gate) plus all A and B happy + negative paths pass.

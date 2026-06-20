@@ -34,16 +34,29 @@ object model and payment-right transfer logic.
 
 ## Latest Testnet Deployment
 
-- Package ID: `0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6`
+- Current package ID (v2): `0x9d23d715ef896b652740efa738185e424094bb83eb982735f1b2283d1b9c0e4a`
+- Original package ID / object type identity: `0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6`
 - InvoiceCounter ID: `0x09435a2fa5ba63b23fef3ae7ca154638e2a48f501b54cad96b7d6cc9d7231340`
 - PlatformConfig ID: `0x032312aa87962ed6707babf73871abf64e31cf6c82cb4b5463ac04fc891301f7`
 - Platform fee: `100 bps` (1%) to `0xd662f2a8ace3a6e61a50b29766fcd83b4e9f7b364974d738eab3b30550fc8cd4`
 - Fee configuration transaction: `4NJ3aZH2oj5zCyJP2QpMT32zgBDybK7tEGrDfA8ww5dp`
-- Publish transaction: `D2gkkL1ojxJt91SJADXVZA2Kgj5qwHQar1iQYACenBVz`
+- Version 2 upgrade transaction: `Cf7tqkkTDRQ7JZ6BRHp4c9ZQRw6qkWTBWCCBp5A7xZQz`
+- Original publish transaction: `D2gkkL1ojxJt91SJADXVZA2Kgj5qwHQar1iQYACenBVz`
 - Package explorer:
-  https://suiscan.xyz/testnet/object/0x44135549f5c650da76f87662848d2a3aa46704a8b231e17cf180220f172190e6
+  https://suiscan.xyz/testnet/object/0x9d23d715ef896b652740efa738185e424094bb83eb982735f1b2283d1b9c0e4a
 - Publish transaction explorer:
   https://suiscan.xyz/testnet/tx/D2gkkL1ojxJt91SJADXVZA2Kgj5qwHQar1iQYACenBVz
+
+Layer B three-wallet smoke proof:
+
+- Receivable: `0xf1a5eb71822b6ef2de6c3d9204590c33e4688472044894742c823f0ae9124ebc`
+- Create: `EuwMBAn21vwjN7FkCynDW7bXU6qPtvUDP4FQaSh3xiGm`
+- Acknowledge: `8Ywd8NmrEpZ9ZLRqTZPVXgWUp4TDDbG3Lo1LPmPeyWmz`
+- List: `G5QG1Zwq9C9AKYVpgc6n5vnWnq9yuF7ujSzQCrn1GBUM`
+- Finance: `ABnUiGs4q6nZSSPkNFU6HDAreA8XPs6aPRetCK8z5vmm`
+- Escrow: `46waMTkeqam2Ppp9y82JV7t5GXgRGoedZQk9jk3atuJ2`
+- Confirm delivery: `4Fhcu2WEA8h5gpZp535VSUCDUhhZ8L9sJP85zigNwAKw`
+- Release settlement: `4wVrK66YqP1rj6ncN7pH9KdGba3XmQvYxfkg6eE1skgW`
 
 ## Current Implementation State
 
@@ -110,6 +123,7 @@ Copy `.env.example` to `.env` after the Move package in `move/` is published:
 VITE_INVO_APP_MODE=development
 VITE_INVO_INDEXER_URL=
 VITE_INVO_RECEIVABLE_PACKAGE_ID=0x...
+VITE_INVO_ORIGINAL_PACKAGE_ID=0x...
 VITE_INVO_RECEIVABLE_MODULE=receivable
 VITE_INVO_ESCROW_MODULE=receivable_escrow
 VITE_INVO_INVOICE_COUNTER_ID=0x...
@@ -139,6 +153,7 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_server_side_service_role_key
 SUI_RPC_URL=https://fullnode.testnet.sui.io:443
 RECEIVABLE_PACKAGE_ID=0x...
+RECEIVABLE_ORIGINAL_PACKAGE_ID=0x...
 RECEIVABLE_MODULE=receivable
 RECEIVABLE_ESCROW_MODULE=receivable_escrow
 SPONSOR_PRIVATE_KEY=suiprivkey1...
@@ -148,8 +163,10 @@ SPONSOR_PRIVATE_KEY=suiprivkey1...
 environment variables for Functions. Do not commit it and do not expose it as a
 `VITE_*` variable.
 
-`RECEIVABLE_PACKAGE_ID` and `RECEIVABLE_MODULE` are public, but setting them for
-Functions lets the API reject unrelated Sui objects before syncing the index.
+`RECEIVABLE_PACKAGE_ID` is the latest package used for Move calls and sponsor
+allowlisting. After an upgrade, `RECEIVABLE_ORIGINAL_PACKAGE_ID` remains the
+original package identity carried by receivable object types and index rows.
+Both values are public.
 
 Walrus URLs are public Testnet endpoints. They are not secrets. Mainnet should
 not use a public unauthenticated publisher.

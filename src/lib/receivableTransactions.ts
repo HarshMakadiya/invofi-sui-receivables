@@ -38,6 +38,15 @@ type EscrowObjectInput = ObjectInput & {
   escrowObjectId: string;
 };
 
+type EscrowPaymentInput = ObjectInput & {
+  amountSui: number;
+  deadlineMs: number;
+};
+
+type ConfirmDeliveryInput = EscrowObjectInput & {
+  evidenceBlobId: string;
+};
+
 const coinTypeArgs = [paymentCoin.type];
 
 export function buildCreateReceivableTx(input: CreateReceivableInput) {
@@ -155,6 +164,64 @@ export function buildClaimDepositTx(input: EscrowObjectInput) {
     target: getReceivableEscrowTarget("claim_deposit"),
     typeArguments: [paymentCoin.type],
     arguments: [tx.object(input.escrowObjectId), tx.object(input.invoiceObjectId), tx.object(SUI_CLOCK_OBJECT_ID)],
+  });
+  return tx;
+}
+
+export function buildEscrowPaymentTx(input: EscrowPaymentInput) {
+  const tx = new Transaction();
+  const payment = tx.add(coinWithBalance({ type: paymentCoin.type, balance: toBaseUnits(input.amountSui) }));
+  tx.moveCall({
+    target: getReceivableEscrowTarget("escrow_payment"),
+    typeArguments: [paymentCoin.type],
+    arguments: [
+      tx.object(input.invoiceObjectId),
+      payment,
+      tx.pure("u64", input.deadlineMs),
+      tx.object(SUI_CLOCK_OBJECT_ID),
+    ],
+  });
+  return tx;
+}
+
+export function buildConfirmDeliveryTx(input: ConfirmDeliveryInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: getReceivableEscrowTarget("confirm_delivery"),
+    typeArguments: [paymentCoin.type],
+    arguments: [
+      tx.object(input.escrowObjectId),
+      tx.object(input.invoiceObjectId),
+      tx.pure("string", input.evidenceBlobId),
+    ],
+  });
+  return tx;
+}
+
+export function buildReleaseSettlementTx(input: EscrowObjectInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: getReceivableEscrowTarget("release_settlement"),
+    typeArguments: [paymentCoin.type],
+    arguments: [
+      tx.object(input.escrowObjectId),
+      tx.object(input.invoiceObjectId),
+      tx.object(SUI_CLOCK_OBJECT_ID),
+    ],
+  });
+  return tx;
+}
+
+export function buildRefundSettlementTx(input: EscrowObjectInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: getReceivableEscrowTarget("refund_settlement"),
+    typeArguments: [paymentCoin.type],
+    arguments: [
+      tx.object(input.escrowObjectId),
+      tx.object(input.invoiceObjectId),
+      tx.object(SUI_CLOCK_OBJECT_ID),
+    ],
   });
   return tx;
 }

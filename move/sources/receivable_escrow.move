@@ -1,4 +1,5 @@
 module invofi::receivable_escrow {
+    use std::string::String;
     use invofi::receivable::{Self, InvoiceReceivable};
     use sui::balance::{Self, Balance};
     use sui::clock::{Self, Clock};
@@ -12,6 +13,10 @@ module invofi::receivable_escrow {
     const STATUS_RELEASED: u8 = 1;
     const STATUS_CLAIMED: u8 = 2;
 
+    const SETTLEMENT_STATUS_ESCROWED: u8 = 0;
+    const SETTLEMENT_STATUS_RELEASED: u8 = 1;
+    const SETTLEMENT_STATUS_REFUNDED: u8 = 2;
+
     const E_ZERO_DEPOSIT: u64 = 0;
     const E_INVOICE_PAID: u64 = 1;
     const E_WRONG_INVOICE: u64 = 2;
@@ -20,6 +25,13 @@ module invofi::receivable_escrow {
     const E_NOT_LOCKED: u64 = 5;
     const E_CLAIM_TOO_EARLY: u64 = 6;
     const E_NOT_BENEFICIARY: u64 = 7;
+    const E_NOT_PAYER: u64 = 8;
+    const E_INCORRECT_SETTLEMENT_AMOUNT: u64 = 9;
+    const E_BAD_DEADLINE: u64 = 10;
+    const E_DELIVERY_ALREADY_CONFIRMED: u64 = 11;
+    const E_DELIVERY_NOT_CONFIRMED: u64 = 12;
+    const E_REFUND_TOO_EARLY: u64 = 13;
+    const E_DELIVERY_CONFIRMED: u64 = 14;
 
     /// A fungible security deposit that follows the invoice's live payment
     /// recipient. The deployed application uses USDC as `CoinT`.
@@ -29,6 +41,19 @@ module invofi::receivable_escrow {
         depositor: address,
         amount: Balance<CoinT>,
         grace_period_ms: u64,
+        created_at_ms: u64,
+        status: u8,
+    }
+
+    /// Full invoice payment held until the payer confirms delivery. If delivery
+    /// is not confirmed by the deadline, the payer can recover the funds.
+    public struct SettlementEscrow<phantom CoinT> has key, store {
+        id: UID,
+        invoice_id: ID,
+        payer: address,
+        amount: Balance<CoinT>,
+        delivery_confirmed: bool,
+        deadline_ms: u64,
         created_at_ms: u64,
         status: u8,
     }
@@ -53,6 +78,36 @@ module invofi::receivable_escrow {
         escrow_id: ID,
         invoice_id: ID,
         beneficiary: address,
+        amount: u64,
+    }
+
+    public struct SettlementEscrowed has copy, drop {
+        escrow_id: ID,
+        invoice_id: ID,
+        payer: address,
+        amount: u64,
+        deadline_ms: u64,
+        created_at_ms: u64,
+    }
+
+    public struct DeliveryConfirmed has copy, drop {
+        escrow_id: ID,
+        invoice_id: ID,
+        payer: address,
+        evidence_blob_id: String,
+    }
+
+    public struct SettlementReleased has copy, drop {
+        escrow_id: ID,
+        invoice_id: ID,
+        payment_recipient: address,
+        amount: u64,
+    }
+
+    public struct SettlementRefunded has copy, drop {
+        escrow_id: ID,
+        invoice_id: ID,
+        payer: address,
         amount: u64,
     }
 
@@ -160,6 +215,138 @@ module invofi::receivable_escrow {
         });
     }
 
+    public entry fun escrow_payment<T>(
+        invoice: &InvoiceReceivable<T>,
+        payment: Coin<T>,
+        deadline_ms: u64,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        let payer = tx_context::sender(ctx);
+        let amount = coin::value(&payment);
+        let created_at_ms = clock::timestamp_ms(clock);
+        assert!(payer == receivable::payer(invoice), E_NOT_PAYER);
+        assert!(!receivable::is_paid(invoice), E_INVOICE_PAID);
+        assert!(amount == receivable::amount_mist(invoice), E_INCORRECT_SETTLEMENT_AMOUNT);
+        assert!(deadline_ms > created_at_ms, E_BAD_DEADLINE);
+
+        let escrow = SettlementEscrow<T> {
+            id: object::new(ctx),
+            invoice_id: receivable::id(invoice),
+            payer,
+            amount: coin::into_balance(payment),
+            delivery_confirmed: false,
+            deadline_ms,
+            created_at_ms,
+            status: SETTLEMENT_STATUS_ESCROWED,
+        };
+        let escrow_id = object::id(&escrow);
+
+        event::emit(SettlementEscrowed {
+            escrow_id,
+            invoice_id: receivable::id(invoice),
+            payer,
+            amount,
+            deadline_ms,
+            created_at_ms,
+        });
+        transfer::share_object(escrow);
+    }
+
+    public entry fun confirm_delivery<T>(
+        escrow: &mut SettlementEscrow<T>,
+        invoice: &InvoiceReceivable<T>,
+        evidence_blob_id: String,
+        ctx: &mut TxContext,
+    ) {
+        assert!(escrow.invoice_id == receivable::id(invoice), E_WRONG_INVOICE);
+        assert!(escrow.status == SETTLEMENT_STATUS_ESCROWED, E_NOT_LOCKED);
+        assert!(tx_context::sender(ctx) == escrow.payer, E_NOT_PAYER);
+        assert!(!escrow.delivery_confirmed, E_DELIVERY_ALREADY_CONFIRMED);
+
+        escrow.delivery_confirmed = true;
+        event::emit(DeliveryConfirmed {
+            escrow_id: object::id(escrow),
+            invoice_id: escrow.invoice_id,
+            payer: escrow.payer,
+            evidence_blob_id,
+        });
+    }
+
+    public entry fun release_settlement<T>(
+        mut escrow: SettlementEscrow<T>,
+        invoice: &mut InvoiceReceivable<T>,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(escrow.invoice_id == receivable::id(invoice), E_WRONG_INVOICE);
+        assert!(escrow.status == SETTLEMENT_STATUS_ESCROWED, E_NOT_LOCKED);
+        assert!(escrow.delivery_confirmed, E_DELIVERY_NOT_CONFIRMED);
+        assert!(!receivable::is_paid(invoice), E_INVOICE_PAID);
+        escrow.status = SETTLEMENT_STATUS_RELEASED;
+
+        let payment_recipient = receivable::payment_recipient(invoice);
+        receivable::settle_from_escrow(invoice, clock);
+
+        let SettlementEscrow {
+            id,
+            invoice_id,
+            payer: _,
+            amount,
+            delivery_confirmed: _,
+            deadline_ms: _,
+            created_at_ms: _,
+            status: _,
+        } = escrow;
+        let escrow_id = object::uid_to_inner(&id);
+        let value = balance::value(&amount);
+        object::delete(id);
+
+        transfer::public_transfer(coin::from_balance(amount, ctx), payment_recipient);
+        event::emit(SettlementReleased {
+            escrow_id,
+            invoice_id,
+            payment_recipient,
+            amount: value,
+        });
+    }
+
+    public entry fun refund_settlement<T>(
+        mut escrow: SettlementEscrow<T>,
+        invoice: &InvoiceReceivable<T>,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(escrow.invoice_id == receivable::id(invoice), E_WRONG_INVOICE);
+        assert!(escrow.status == SETTLEMENT_STATUS_ESCROWED, E_NOT_LOCKED);
+        assert!(tx_context::sender(ctx) == escrow.payer, E_NOT_PAYER);
+        assert!(!escrow.delivery_confirmed, E_DELIVERY_CONFIRMED);
+        assert!(clock::timestamp_ms(clock) > escrow.deadline_ms, E_REFUND_TOO_EARLY);
+        escrow.status = SETTLEMENT_STATUS_REFUNDED;
+
+        let SettlementEscrow {
+            id,
+            invoice_id,
+            payer,
+            amount,
+            delivery_confirmed: _,
+            deadline_ms: _,
+            created_at_ms: _,
+            status: _,
+        } = escrow;
+        let escrow_id = object::uid_to_inner(&id);
+        let value = balance::value(&amount);
+        object::delete(id);
+
+        transfer::public_transfer(coin::from_balance(amount, ctx), payer);
+        event::emit(SettlementRefunded {
+            escrow_id,
+            invoice_id,
+            payer,
+            amount: value,
+        });
+    }
+
     public fun invoice_id<CoinT>(escrow: &DepositEscrow<CoinT>): ID {
         escrow.invoice_id
     }
@@ -177,6 +364,30 @@ module invofi::receivable_escrow {
     }
 
     public fun status<CoinT>(escrow: &DepositEscrow<CoinT>): u8 {
+        escrow.status
+    }
+
+    public fun settlement_invoice_id<CoinT>(escrow: &SettlementEscrow<CoinT>): ID {
+        escrow.invoice_id
+    }
+
+    public fun settlement_payer<CoinT>(escrow: &SettlementEscrow<CoinT>): address {
+        escrow.payer
+    }
+
+    public fun settlement_amount<CoinT>(escrow: &SettlementEscrow<CoinT>): u64 {
+        balance::value(&escrow.amount)
+    }
+
+    public fun delivery_confirmed<CoinT>(escrow: &SettlementEscrow<CoinT>): bool {
+        escrow.delivery_confirmed
+    }
+
+    public fun settlement_deadline_ms<CoinT>(escrow: &SettlementEscrow<CoinT>): u64 {
+        escrow.deadline_ms
+    }
+
+    public fun settlement_status<CoinT>(escrow: &SettlementEscrow<CoinT>): u8 {
         escrow.status
     }
 
@@ -208,6 +419,44 @@ module invofi::receivable_escrow {
             depositor: _,
             amount,
             grace_period_ms: _,
+            created_at_ms: _,
+            status: _,
+        } = escrow;
+        balance::destroy_for_testing(amount);
+        object::delete(id);
+    }
+
+    #[test_only]
+    public(package) fun settlement_for_testing<T>(
+        invoice: &InvoiceReceivable<T>,
+        payer: address,
+        amount: u64,
+        delivery_confirmed: bool,
+        deadline_ms: u64,
+        created_at_ms: u64,
+        ctx: &mut TxContext,
+    ): SettlementEscrow<T> {
+        SettlementEscrow {
+            id: object::new(ctx),
+            invoice_id: receivable::id(invoice),
+            payer,
+            amount: balance::create_for_testing(amount),
+            delivery_confirmed,
+            deadline_ms,
+            created_at_ms,
+            status: SETTLEMENT_STATUS_ESCROWED,
+        }
+    }
+
+    #[test_only]
+    public(package) fun destroy_settlement_for_testing<CoinT>(escrow: SettlementEscrow<CoinT>) {
+        let SettlementEscrow {
+            id,
+            invoice_id: _,
+            payer: _,
+            amount,
+            delivery_confirmed: _,
+            deadline_ms: _,
             created_at_ms: _,
             status: _,
         } = escrow;

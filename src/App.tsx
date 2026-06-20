@@ -47,17 +47,21 @@ import {
   buildAcknowledgeInvoiceTx,
   buildBuyReceivableTx,
   buildClaimDepositTx,
+  buildConfirmDeliveryTx,
   buildCreateReceivableTx,
+  buildEscrowPaymentTx,
   buildLockDepositTx,
   buildListForFinancingTx,
   buildMarkOverdueTx,
   buildPayInvoiceTx,
+  buildRefundSettlementTx,
   buildReleaseDepositTx,
+  buildReleaseSettlementTx,
 } from "./lib/receivableTransactions";
 import { fetchReceivablesFromDb, isSupabaseConfigured, saveReceivableToDb } from "./lib/supabaseReceivables";
 import { downloadEvidencePackage, evidenceUrl, uploadEvidencePackage, uploadWalrusBlob } from "./lib/walrus";
 import type { EvidenceLineItem, EvidencePackage } from "./types/evidence";
-import type { FinancingStatus, Invoice, InvoiceStatus, Page, WalletRole } from "./types/receivable";
+import type { FinancingStatus, Invoice, InvoiceStatus, Page, Reputation, WalletRole } from "./types/receivable";
 
 function readInvoiceIdFromLocation() {
   const match = window.location.pathname.match(/^\/invoice\/([^/]+)/);
@@ -135,11 +139,42 @@ function canBuyInvoice(invoice: Invoice, walletRole: WalletRole, activeAddress: 
 }
 
 function canPayInvoice(invoice: Invoice, walletRole: WalletRole, activeAddress: string) {
-  if (invoice.status !== "PENDING") {
+  if (invoice.status !== "PENDING" || invoice.settlementStatus === "ESCROWED") {
     return false;
   }
 
   return isProductionMode ? sameAddress(activeAddress, invoice.payer) : walletRole === "payer";
+}
+
+function canEscrowSettlement(invoice: Invoice, activeAddress: string) {
+  return Boolean(
+    activeAddress &&
+    isRealSuiId(invoice.objectId) &&
+    invoice.status !== "PAID" &&
+    !invoice.settlementStatus &&
+    sameAddress(activeAddress, invoice.payer),
+  );
+}
+
+function canConfirmSettlement(invoice: Invoice, activeAddress: string) {
+  return Boolean(
+    invoice.settlementStatus === "ESCROWED" &&
+    !invoice.settlementDeliveryConfirmed &&
+    sameAddress(activeAddress, invoice.settlementPayer ?? invoice.payer),
+  );
+}
+
+function canReleaseSettlement(invoice: Invoice, activeAddress: string) {
+  return Boolean(activeAddress && invoice.settlementStatus === "ESCROWED" && invoice.settlementDeliveryConfirmed);
+}
+
+function canRefundSettlement(invoice: Invoice, activeAddress: string) {
+  return Boolean(
+    invoice.settlementStatus === "ESCROWED" &&
+    !invoice.settlementDeliveryConfirmed &&
+    sameAddress(activeAddress, invoice.settlementPayer ?? invoice.payer) &&
+    Date.now() > (invoice.settlementDeadlineMs ?? Number.POSITIVE_INFINITY),
+  );
 }
 
 function canReleaseDeposit(invoice: Invoice, activeAddress: string) {
@@ -168,6 +203,8 @@ function App() {
   const [isCreating, setIsCreating] = useState(false);
   const [listingInvoice, setListingInvoice] = useState<Invoice | null>(null);
   const [depositInvoice, setDepositInvoice] = useState<Invoice | null>(null);
+  const [settlementInvoice, setSettlementInvoice] = useState<Invoice | null>(null);
+  const [deliveryInvoice, setDeliveryInvoice] = useState<Invoice | null>(null);
 
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0] ?? null;
   const wallet = wallets[walletRole];
@@ -639,6 +676,119 @@ function App() {
     });
   }
 
+  async function escrowSettlement(invoice: Invoice, deadlineDays: number) {
+    if (!account || !canEscrowSettlement(invoice, activeAddress)) {
+      notify("Connect the configured payer wallet to escrow the invoice payment.");
+      return;
+    }
+    if (!Number.isInteger(deadlineDays) || deadlineDays <= 0) {
+      notify("Enter a settlement deadline of at least one day.");
+      return;
+    }
+
+    const deadlineMs = Date.now() + deadlineDays * 24 * 60 * 60 * 1000;
+    const escrowType = `${receivableContract.packageId}::${receivableContract.escrowModuleName}::SettlementEscrow`;
+    const result = await trySubmitTransaction(
+      "Settlement escrow transaction",
+      () => buildEscrowPaymentTx({ invoiceObjectId: invoice.objectId, amountSui: invoice.amount, deadlineMs }),
+      escrowType,
+    );
+    if (!result?.createdObjectId) {
+      if (result) notify("Payment was escrowed, but its settlement object could not be resolved yet.");
+      return;
+    }
+
+    updateInvoice({
+      ...invoice,
+      settlementEscrowId: result.createdObjectId,
+      settlementStatus: "ESCROWED",
+      settlementPayer: account.address,
+      settlementAmount: invoice.amount,
+      settlementDeliveryConfirmed: false,
+      settlementDeadlineMs: deadlineMs,
+      settlementTx: result.digest,
+      txDigest: result.digest,
+      events: [...invoice.events, `Full payment escrowed: ${shortAddress(result.createdObjectId)}`],
+    });
+    setSettlementInvoice(null);
+  }
+
+  async function confirmSettlementDelivery(invoice: Invoice, proofFile: File) {
+    if (!invoice.settlementEscrowId || !canConfirmSettlement(invoice, activeAddress)) {
+      notify("Connect the settlement payer wallet to confirm delivery.");
+      return;
+    }
+
+    let proofBlobId: string;
+    try {
+      proofBlobId = (await uploadWalrusBlob(proofFile)).blobId;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Delivery proof upload failed.");
+      return;
+    }
+
+    const result = await trySubmitTransaction("Delivery confirmation transaction", () =>
+      buildConfirmDeliveryTx({
+        invoiceObjectId: invoice.objectId,
+        escrowObjectId: invoice.settlementEscrowId!,
+        evidenceBlobId: proofBlobId,
+      }),
+    );
+    if (!result) return;
+
+    updateInvoice({
+      ...invoice,
+      settlementDeliveryConfirmed: true,
+      settlementDeliveryProofBlobId: proofBlobId,
+      settlementTx: result.digest,
+      txDigest: result.digest,
+      events: [...invoice.events, `Delivery confirmed with Walrus proof: ${shortAddress(proofBlobId)}`],
+    });
+    setDeliveryInvoice(null);
+  }
+
+  async function releaseSettlement(invoice: Invoice) {
+    if (!invoice.settlementEscrowId || !canReleaseSettlement(invoice, activeAddress)) {
+      notify("Delivery must be confirmed before the escrowed payment can be released.");
+      return;
+    }
+
+    const result = await trySubmitTransaction("Settlement release transaction", () =>
+      buildReleaseSettlementTx({ invoiceObjectId: invoice.objectId, escrowObjectId: invoice.settlementEscrowId! }),
+    );
+    if (!result) return;
+
+    updateInvoice({
+      ...invoice,
+      status: "PAID",
+      settlementStatus: "RELEASED",
+      settlementTx: result.digest,
+      txDigest: result.digest,
+      evidence: { ...invoice.evidence, unpaid: false },
+      events: [...invoice.events, `Escrowed payment released: ${shortAddress(result.digest)}`],
+    });
+  }
+
+  async function refundSettlement(invoice: Invoice) {
+    if (!invoice.settlementEscrowId || !canRefundSettlement(invoice, activeAddress)) {
+      notify("Only the payer can refund an unconfirmed settlement after its deadline.");
+      return;
+    }
+
+    const result = await trySubmitTransaction("Settlement refund transaction", () =>
+      buildRefundSettlementTx({ invoiceObjectId: invoice.objectId, escrowObjectId: invoice.settlementEscrowId! }),
+    );
+    if (!result) return;
+
+    updateInvoice({
+      ...invoice,
+      settlementStatus: "REFUNDED",
+      settlementTx: result.digest,
+      txDigest: result.digest,
+      events: [...invoice.events, `Escrowed payment refunded: ${shortAddress(result.digest)}`],
+    });
+  }
+
   async function createInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -929,6 +1079,10 @@ function App() {
               onRequestDeposit={setDepositInvoice}
               onReleaseDeposit={releaseDeposit}
               onClaimDeposit={claimDeposit}
+              onRequestSettlement={setSettlementInvoice}
+              onRequestDelivery={setDeliveryInvoice}
+              onReleaseSettlement={releaseSettlement}
+              onRefundSettlement={refundSettlement}
               onCreate={() => navigate("create")}
               onQuery={setQuery}
               onSelect={selectInvoice}
@@ -961,6 +1115,20 @@ function App() {
           invoice={depositInvoice}
           onClose={() => setDepositInvoice(null)}
           onSubmit={(amount, graceDays) => lockDeposit(depositInvoice, amount, graceDays)}
+        />
+      )}
+      {settlementInvoice && (
+        <SettlementEscrowModal
+          invoice={settlementInvoice}
+          onClose={() => setSettlementInvoice(null)}
+          onSubmit={(deadlineDays) => escrowSettlement(settlementInvoice, deadlineDays)}
+        />
+      )}
+      {deliveryInvoice && (
+        <DeliveryConfirmationModal
+          invoice={deliveryInvoice}
+          onClose={() => setDeliveryInvoice(null)}
+          onSubmit={(proofFile) => confirmSettlementDelivery(deliveryInvoice, proofFile)}
         />
       )}
     </div>
@@ -1159,6 +1327,10 @@ function Dashboard({
   onRequestDeposit,
   onReleaseDeposit,
   onClaimDeposit,
+  onRequestSettlement,
+  onRequestDelivery,
+  onReleaseSettlement,
+  onRefundSettlement,
   onQuery,
   onSelect,
   onShowMarketplace,
@@ -1178,6 +1350,10 @@ function Dashboard({
   onRequestDeposit: (invoice: Invoice) => void;
   onReleaseDeposit: (invoice: Invoice) => void;
   onClaimDeposit: (invoice: Invoice) => void;
+  onRequestSettlement: (invoice: Invoice) => void;
+  onRequestDelivery: (invoice: Invoice) => void;
+  onReleaseSettlement: (invoice: Invoice) => void;
+  onRefundSettlement: (invoice: Invoice) => void;
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
   onShowMarketplace: () => void;
@@ -1282,6 +1458,10 @@ function Dashboard({
           onRequestDeposit={onRequestDeposit}
           onReleaseDeposit={onReleaseDeposit}
           onClaimDeposit={onClaimDeposit}
+          onRequestSettlement={onRequestSettlement}
+          onRequestDelivery={onRequestDelivery}
+          onReleaseSettlement={onReleaseSettlement}
+          onRefundSettlement={onRefundSettlement}
         />
       ) : (
         <EmptyInspector />
@@ -1383,6 +1563,10 @@ function InvoiceInspector({
   onRequestDeposit,
   onReleaseDeposit,
   onClaimDeposit,
+  onRequestSettlement,
+  onRequestDelivery,
+  onReleaseSettlement,
+  onRefundSettlement,
 }: {
   activeAddress: string;
   invoice: Invoice;
@@ -1395,6 +1579,10 @@ function InvoiceInspector({
   onRequestDeposit: (invoice: Invoice) => void;
   onReleaseDeposit: (invoice: Invoice) => void;
   onClaimDeposit: (invoice: Invoice) => void;
+  onRequestSettlement: (invoice: Invoice) => void;
+  onRequestDelivery: (invoice: Invoice) => void;
+  onReleaseSettlement: (invoice: Invoice) => void;
+  onRefundSettlement: (invoice: Invoice) => void;
 }) {
   const [evidencePreview, setEvidencePreview] = useState<EvidencePackage | null>(null);
   const [evidenceError, setEvidenceError] = useState("");
@@ -1454,6 +1642,11 @@ function InvoiceInspector({
               style={{ width: `${health.score}%` }}
             />
           </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <ReputationBadge label="Issuer history" reputation={invoice.issuerReputation} />
+          <ReputationBadge label="Payer history" reputation={invoice.payerReputation} />
         </div>
 
         {/* Digital Document Section (Verdacert-style document preview) */}
@@ -1597,6 +1790,15 @@ function InvoiceInspector({
         onRelease={onReleaseDeposit}
       />
 
+      <SettlementProtection
+        activeAddress={activeAddress}
+        invoice={invoice}
+        onConfirm={onRequestDelivery}
+        onEscrow={onRequestSettlement}
+        onRefund={onRefundSettlement}
+        onRelease={onReleaseSettlement}
+      />
+
       <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1653,6 +1855,16 @@ function InvoiceInspector({
             }
             href={invoice.depositEscrowId && isRealSuiId(invoice.depositEscrowId) ? suiObjectUrl(invoice.depositEscrowId) : undefined}
             label="Security deposit"
+          />
+          <VerificationRow
+            disabled={!invoice.settlementEscrowId || !isRealSuiId(invoice.settlementEscrowId)}
+            helper={
+              invoice.settlementEscrowId
+                ? `${invoice.settlementStatus ?? "ESCROWED"} · ${formatToken(invoice.settlementAmount ?? invoice.amount)}`
+                : "No full payment escrowed"
+            }
+            href={invoice.settlementEscrowId && isRealSuiId(invoice.settlementEscrowId) ? suiObjectUrl(invoice.settlementEscrowId) : undefined}
+            label="Settlement escrow"
           />
         </div>
       </div>
@@ -1745,6 +1957,78 @@ function DepositProtection({
             Claim default
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function SettlementProtection({
+  activeAddress,
+  invoice,
+  onConfirm,
+  onEscrow,
+  onRefund,
+  onRelease,
+}: {
+  activeAddress: string;
+  invoice: Invoice;
+  onConfirm: (invoice: Invoice) => void;
+  onEscrow: (invoice: Invoice) => void;
+  onRefund: (invoice: Invoice) => void;
+  onRelease: (invoice: Invoice) => void;
+}) {
+  const status = invoice.settlementStatus;
+  const deadline = invoice.settlementDeadlineMs ? new Date(invoice.settlementDeadlineMs) : null;
+  const canEscrow = canEscrowSettlement(invoice, activeAddress);
+  const canConfirm = canConfirmSettlement(invoice, activeAddress);
+  const canRelease = canReleaseSettlement(invoice, activeAddress);
+  const canRefund = canRefundSettlement(invoice, activeAddress);
+
+  return (
+    <div className="rounded-[1.25rem] border border-line bg-lead p-5 shadow-flat">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-moss font-mono">Layer B settlement</p>
+          <h3 className="mt-1.5 text-sm font-bold text-ink font-poppins">Full payment escrow</h3>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider font-mono ${status === "ESCROWED" ? "border-sun/30 bg-sun/10 text-sun" : status === "RELEASED" ? "border-moss/30 bg-mosssoft text-moss" : "border-line bg-paperalt/50 text-inkmuted"}`}>
+          {status ?? "Not funded"}
+        </span>
+      </div>
+
+      {status ? (
+        <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-line bg-paperalt/30 p-3">
+          <SmallStat label="Escrowed" value={formatToken(invoice.settlementAmount ?? invoice.amount)} />
+          <SmallStat label="Delivery" value={invoice.settlementDeliveryConfirmed ? "Confirmed" : "Pending"} />
+          <div className="col-span-2 text-[10px] text-inkmuted font-mono">
+            {deadline ? `Refund deadline ${deadline.toISOString().slice(0, 10)}` : "Deadline unavailable"}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs leading-5 text-inksecondary">
+          The payer locks the full {formatToken(invoice.amount)} invoice amount. Delivery confirmation releases it to the current payment-rights holder; no confirmation allows a refund after the deadline.
+        </p>
+      )}
+
+      {!status && (
+        <button className="mt-4 w-full rounded-xl bg-moss px-4 py-3 text-xs font-bold text-lead shadow-flat transition hover:bg-mossdeep disabled:bg-paperalt/50 disabled:text-inkmuted/50" disabled={!canEscrow} onClick={() => onEscrow(invoice)} type="button">
+          Escrow full payment
+        </button>
+      )}
+      {status === "ESCROWED" && !invoice.settlementDeliveryConfirmed && (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button className="rounded-xl bg-moss px-3 py-3 text-xs font-bold text-lead disabled:bg-paperalt/50 disabled:text-inkmuted/50" disabled={!canConfirm} onClick={() => onConfirm(invoice)} type="button">
+            Confirm delivery
+          </button>
+          <button className="rounded-xl border border-sun/30 bg-sun/10 px-3 py-3 text-xs font-bold text-sun disabled:border-line disabled:bg-paperalt/40 disabled:text-inkmuted/50" disabled={!canRefund} onClick={() => onRefund(invoice)} type="button">
+            Refund payment
+          </button>
+        </div>
+      )}
+      {status === "ESCROWED" && invoice.settlementDeliveryConfirmed && (
+        <button className="mt-4 w-full rounded-xl bg-moss px-4 py-3 text-xs font-bold text-lead disabled:bg-paperalt/50 disabled:text-inkmuted/50" disabled={!canRelease} onClick={() => onRelease(invoice)} type="button">
+          Release to recipient
+        </button>
       )}
     </div>
   );
@@ -2410,6 +2694,113 @@ function DepositModal({
   );
 }
 
+function SettlementEscrowModal({
+  invoice,
+  onClose,
+  onSubmit,
+}: {
+  invoice: Invoice;
+  onClose: () => void;
+  onSubmit: (deadlineDays: number) => void;
+}) {
+  const [deadlineDays, setDeadlineDays] = useState("7");
+  const days = Number(deadlineDays);
+  const isValid = Number.isInteger(days) && days > 0;
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink/45 px-4 py-6 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-[1.5rem] border border-line bg-[#FFFDF7] p-5 shadow-lifted md:p-6" onSubmit={(event) => { event.preventDefault(); if (isValid) onSubmit(days); }}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-moss font-poppins">Layer B settlement</p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-poppins">Escrow full invoice payment</h2>
+            <p className="mt-1 text-xs leading-5 text-inksecondary">
+              Lock {formatToken(invoice.amount)} until delivery is confirmed. If confirmation never arrives, the payer can refund after the deadline.
+            </p>
+          </div>
+          <button aria-label="Close settlement dialog" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-lead text-inksecondary shadow-flat transition hover:bg-paperalt/50 hover:text-ink" onClick={onClose} type="button">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 rounded-2xl border border-line bg-paperalt/35 p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <SmallStat label="Escrow amount" value={formatToken(invoice.amount)} />
+            <SmallStat label="Recipient" value={shortAddress(invoice.paymentRecipient)} />
+          </div>
+          <label className="grid gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink font-poppins">Confirmation deadline</span>
+            <div className="flex items-center rounded-xl border border-line bg-lead px-4 py-3 focus-within:border-moss focus-within:ring-1 focus-within:ring-moss/30">
+              <input className="min-w-0 flex-1 bg-transparent text-lg font-bold text-ink outline-none font-numbers" inputMode="numeric" min="1" onChange={(event) => setDeadlineDays(event.target.value)} step="1" type="number" value={deadlineDays} />
+              <span className="text-xs font-bold text-inkmuted font-mono">days</span>
+            </div>
+          </label>
+          <p className="text-[11px] leading-5 text-inksecondary">
+            The payment cannot be refunded before this deadline and cannot be refunded after delivery is confirmed.
+          </p>
+        </div>
+
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button className="rounded-xl border border-line bg-lead px-5 py-3 text-xs font-bold text-ink shadow-flat transition hover:bg-paperalt/50" onClick={onClose} type="button">Cancel</button>
+          <button className="rounded-xl border border-moss bg-moss px-5 py-3 text-xs font-bold text-lead shadow-flat transition hover:bg-mossdeep disabled:border-line disabled:bg-paperalt/50 disabled:text-inkmuted/50" disabled={!isValid} type="submit">Continue to wallet</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DeliveryConfirmationModal({
+  invoice,
+  onClose,
+  onSubmit,
+}: {
+  invoice: Invoice;
+  onClose: () => void;
+  onSubmit: (proofFile: File) => void;
+}) {
+  function submitProof(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const proof = new FormData(event.currentTarget).get("deliveryProof");
+    if (proof instanceof File && proof.size > 0) onSubmit(proof);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink/45 px-4 py-6 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-[1.5rem] border border-line bg-[#FFFDF7] p-5 shadow-lifted md:p-6" onSubmit={submitProof}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-moss font-poppins">Delivery attestation</p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-tight text-ink font-poppins">Confirm delivery</h2>
+            <p className="mt-1 text-xs leading-5 text-inksecondary">
+              Upload delivery evidence for {invoice.id}. The file is stored on Walrus before your confirmation is signed on Sui.
+            </p>
+          </div>
+          <button aria-label="Close delivery confirmation dialog" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-lead text-inksecondary shadow-flat transition hover:bg-paperalt/50 hover:text-ink" onClick={onClose} type="button"><X size={16} /></button>
+        </div>
+
+        <label className="mt-5 grid gap-2 rounded-2xl border border-line bg-paperalt/35 p-4">
+          <span className="text-xs font-bold uppercase tracking-wider text-ink font-poppins">Delivery proof</span>
+          <input accept="application/pdf,image/png,image/jpeg" className="rounded-xl border border-line bg-lead px-4 py-3 text-xs text-ink file:mr-4 file:rounded-lg file:border-0 file:bg-moss file:px-3 file:py-2 file:text-xs file:font-bold file:text-lead" name="deliveryProof" required type="file" />
+          <span className="text-[11px] leading-5 text-inksecondary">Receipt, delivery note, or acceptance evidence. Confirmation is irreversible.</span>
+        </label>
+
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button className="rounded-xl border border-line bg-lead px-5 py-3 text-xs font-bold text-ink shadow-flat transition hover:bg-paperalt/50" onClick={onClose} type="button">Cancel</button>
+          <button className="rounded-xl border border-moss bg-moss px-5 py-3 text-xs font-bold text-lead shadow-flat transition hover:bg-mossdeep" type="submit">Upload and confirm</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Marketplace({
   activeAddress,
   invoices,
@@ -2463,6 +2854,12 @@ function Marketplace({
                 <span className="truncate font-mono text-inksecondary" title={feeBreakdown(invoice.financingPrice).recipient}>
                   → {shortAddress(feeBreakdown(invoice.financingPrice).recipient)}
                 </span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <ReputationBadge label="Issuer history" reputation={invoice.issuerReputation} compact />
+                <ReputationBadge label="Payer history" reputation={invoice.payerReputation} compact />
+                {invoice.depositStatus === "LOCKED" ? <MiniChip>Bond locked · {formatToken(invoice.depositAmount ?? 0)}</MiniChip> : null}
+                {invoice.settlementStatus === "ESCROWED" ? <MiniChip>Payment escrowed</MiniChip> : null}
               </div>
               <div className="mt-4 flex gap-2">
                 <button
@@ -2713,6 +3110,36 @@ function SmallStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl bg-paperalt/40 border border-line p-3">
       <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-inkmuted font-poppins font-semibold">{label}</p>
       <p className="mt-1 truncate font-bold text-ink text-sm font-numbers">{value}</p>
+    </div>
+  );
+}
+
+function ReputationBadge({
+  label,
+  reputation,
+  compact = false,
+}: {
+  label: string;
+  reputation?: Reputation;
+  compact?: boolean;
+}) {
+  const score = reputation?.score ?? 50;
+  const tone = score >= 75
+    ? "border-moss/25 bg-mosssoft text-moss"
+    : score < 40
+      ? "border-coral/25 bg-coral/10 text-coral"
+      : "border-line bg-paperalt/50 text-inksecondary";
+  const title = reputation
+    ? `${reputation.invoicesPaid} paid · ${reputation.defaults} defaults · ${reputation.settlements} escrow settlements`
+    : "No indexed protocol history yet";
+
+  return (
+    <div
+      className={`${tone} ${compact ? "rounded-full px-2.5 py-1" : "rounded-xl px-3 py-2.5"} flex items-center justify-between gap-2 border`}
+      title={title}
+    >
+      <span className={`${compact ? "text-[9px]" : "text-[10px]"} font-bold uppercase tracking-[0.12em]`}>{label}</span>
+      <span className="font-mono text-xs font-bold">{reputation ? score : "NEW"}</span>
     </div>
   );
 }
