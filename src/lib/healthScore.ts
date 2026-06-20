@@ -1,14 +1,32 @@
 import type { Invoice } from "../types/receivable";
 
+const SUI_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{64}$/;
+const WALRUS_BLOB_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const SHA256_PATTERN = /^sha256:[0-9a-fA-F]{64}$/;
+
 export function healthScore(invoice: Invoice) {
+  const dueDateMs = new Date(invoice.dueDate).getTime();
+  const hasValidDueDate = Number.isFinite(dueDateMs) && dueDateMs > 0;
+  const isWithinTerms = hasValidDueDate && dueDateMs > Date.now();
+  const dueDateCheck =
+    invoice.status === "PAID"
+      ? { label: "Due date recorded", passed: hasValidDueDate, points: 15 }
+      : { label: "Invoice within terms", passed: isWithinTerms, points: 15 };
+  const lifecycleCheck =
+    invoice.status === "PAID"
+      ? { label: "Settlement completed", passed: true, points: 20 }
+      : invoice.status === "OVERDUE" || !isWithinTerms
+        ? { label: "Payment status healthy", passed: false, points: 20 }
+        : { label: "Invoice open and unpaid", passed: true, points: 20 };
+
   const checks = [
-    { label: "Payer wallet present", passed: invoice.evidence.payerWalletPresent, points: 15 },
-    { label: "Invoice PDF uploaded", passed: invoice.evidence.invoicePdf, points: 20 },
-    { label: "Line items match", passed: invoice.evidence.lineItemsMatch, points: 15 },
-    { label: "Due date valid", passed: invoice.evidence.dueDateValid, points: 15 },
-    { label: "Invoice unpaid", passed: invoice.status === "PENDING", points: 15 },
-    { label: "Evidence complete", passed: invoice.evidence.evidenceComplete, points: 10 },
-    { label: "Walrus blob available", passed: invoice.evidence.walrusAvailable, points: 10 },
+    { label: "On-chain receivable", passed: SUI_ADDRESS_PATTERN.test(invoice.objectId), points: 10 },
+    { label: "Payer wallet verified", passed: SUI_ADDRESS_PATTERN.test(invoice.payer), points: 15 },
+    { label: "Payer acknowledged", passed: (invoice.acknowledgedAtMs ?? 0) > 0, points: 10 },
+    { label: "Walrus evidence linked", passed: WALRUS_BLOB_PATTERN.test(invoice.blobId), points: 15 },
+    { label: "Evidence checksum anchored", passed: SHA256_PATTERN.test(invoice.metadataChecksum ?? ""), points: 15 },
+    dueDateCheck,
+    lifecycleCheck,
   ];
 
   return {
