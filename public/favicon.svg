@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="InvoFi">
+  <rect width="64" height="64" rx="14" fill="#1F4634"/>
+  <path d="M15 15h16v6h-5v22h5v6H15v-6h5V21h-5z" fill="#FFFDF7"/>
+  <path d="M35 15h17v6H41v8h10v6H41v14h-6z" fill="#FFFDF7"/>
+  <circle cx="52" cy="47" r="4" fill="#D4A247"/>
+</svg>
